@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function PaymentCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const status = searchParams.get("STATUS");
-  const orderId = searchParams.get("ORDERID");
+  const status = (searchParams.get("STATUS") || searchParams.get("status") || "").toUpperCase();
+  const orderId = searchParams.get("ORDERID") || searchParams.get("orderId");
+  const respMsg = searchParams.get("RESPMSG") || searchParams.get("respmsg");
 
   useEffect(() => {
     // You could verify the transaction here with your backend if you had one
@@ -35,18 +36,19 @@ export default function PaymentCallback() {
               <CheckCircle2 className="h-16 w-16 text-emerald-500" />
               <div className="space-y-1">
                 <h3 className="text-xl font-bold">Payment Successful!</h3>
-                <p className="text-muted-foreground text-sm font-mono">Order ID: {orderId}</p>
+                <p className="text-muted-foreground text-sm font-mono">Order: {orderId}</p>
               </div>
-              <p>Your quotation has been updated. Thank you for the payment.</p>
+              <p className="text-sm px-4">Your quotation has been updated. Thank you for the payment.</p>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-4 py-8">
               <XCircle className="h-16 w-16 text-destructive" />
               <div className="space-y-1">
                 <h3 className="text-xl font-bold">Payment Failed</h3>
-                <p className="text-muted-foreground text-sm font-mono">Order ID: {orderId}</p>
+                <p className="text-muted-foreground text-sm font-mono">Order: {orderId}</p>
+                {respMsg && <p className="text-xs text-destructive/80 mt-2 italic">"{respMsg}"</p>}
               </div>
-              <p>Something went wrong with the transaction. Please try again or contact support.</p>
+              <p className="text-sm px-4">Something went wrong with the transaction. Please try again or contact support.</p>
             </div>
           )}
           
