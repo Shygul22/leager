@@ -271,26 +271,39 @@ export default function Quotations() {
   const getGSTTotal = (items?: QuotationItem[]) => (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
   const getTotal = (items?: QuotationItem[]) => getSubtotal(items) + getGSTTotal(items);
 
-  const handleSendEmail = (q: Quotation) => {
+  const handleSendEmail = async (q: Quotation) => {
     if (!profile?.paytm_merchant_id) {
       toast.error("Please configure Paytm settings in Settings page first.");
       return;
     }
 
-    const config = {
-      merchantId: profile.paytm_merchant_id,
-      merchantKey: profile.paytm_merchant_key || "",
-      website: (profile as any).paytm_website || "WEBSTAGING",
-      industryType: (profile as any).paytm_industry_type || "Retail"
-    };
+    try {
+      // Mark as published
+      const { error } = await supabase.from("quotations").update({ is_published: true }).eq("id", q.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["quotations"] });
 
-    const amount = getTotal(q.quotation_items);
-    const paymentLink = generatePaytmLink(config, q.quotation_number, user?.id || "guest", amount);
-    const body = getPaytmEmailBody(q.client_name, q.quotation_number, amount, q.currency || "INR", paymentLink);
-    
-    const mailtoUrl = `mailto:${q.client_email || ""}?subject=Quotation ${q.quotation_number}&body=${encodeURIComponent(body)}`;
-    window.open(mailtoUrl);
-    toast.success("Email client opened!");
+      const amount = getTotal(q.quotation_items);
+      // Link to the public review page instead of raw Paytm link
+      const publicLink = window.location.origin + "/public/quotation/" + q.id;
+      const body = `Dear ${q.client_name},
+
+Please find the quotation ${q.quotation_number} for your review.
+
+Total Amount: ${q.currency || "INR"} ${amount.toFixed(2)}
+
+You can review the details and proceed with the payment using the link below:
+${publicLink}
+
+Regards,
+${profile.company_name || "Accounting Team"}`;
+      
+      const mailtoUrl = `mailto:${q.client_email || ""}?subject=Quotation ${q.quotation_number}&body=${encodeURIComponent(body)}`;
+      window.open(mailtoUrl);
+      toast.success("Quotation published and email client opened!");
+    } catch (err: any) {
+      toast.error("Error publishing quotation: " + err.message);
+    }
   };
 
   return (

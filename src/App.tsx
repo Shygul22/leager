@@ -12,6 +12,7 @@ import Invoices from "./pages/Invoices";
 import Analysis from "./pages/Analysis";
 import Clients from "./pages/Clients";
 import Quotations from "./pages/Quotations";
+import PublicQuotation from "./pages/PublicQuotation";
 import PaymentCallback from "./pages/PaymentCallback";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
             <Route path="/quotations" element={<ProtectedRoute><Quotations /></ProtectedRoute>} />
+            <Route path="/public/quotation/:id" element={<PublicQuotation />} />
             <Route path="/payment-callback" element={<PaymentCallback />} />
             <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
             <Route path="/analysis" element={<ProtectedRoute><Analysis /></ProtectedRoute>} />

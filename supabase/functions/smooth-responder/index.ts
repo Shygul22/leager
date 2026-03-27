@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 /**
- * Smooth Responder (Paytm POST to GET Bridge)
+ * Smooth Responder (Paytm POST to GET Bridge with DB Update)
  */
 
 serve(async (req) => {
@@ -20,7 +21,25 @@ serve(async (req) => {
 
     console.log("Paytm Callback Received:", params);
 
-    // Default frontend URL
+    // 1. Update Database if Success
+    if (params.STATUS === "TXN_SUCCESS" && params.ORDERID) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      const { data, error } = await supabase
+        .from("quotations")
+        .update({ status: "accepted", is_paid: true })
+        .eq("quotation_number", params.ORDERID);
+
+      if (error) {
+        console.error("Error updating quotation status:", error);
+      } else {
+        console.log("Quotation status updated successfully for:", params.ORDERID);
+      }
+    }
+
+    // 2. Redirect to Frontend
     const baseUrl = "https://tapir-265664.hostingersite.com";
     const redirectUrl = new URL("/payment-callback", baseUrl);
     
