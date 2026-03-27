@@ -20,7 +20,7 @@ export const generatePaytmLink = (
   isStaging: boolean = true
 ) => {
   const baseUrl = isStaging 
-    ? "https://securegw-stage.paytm.in/order/process" 
+    ? "https://securegw-stage.paytm.in/order/sendpaymentrequest" 
     : "https://securegw.paytm.in/order/process";
 
   // In a real app, you would call your backend here to get a txnToken or checksum
