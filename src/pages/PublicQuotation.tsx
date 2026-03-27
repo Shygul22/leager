@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Loader2, CreditCard, CheckCircle2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
-import { generatePaytmLink } from "@/utils/paytm";
+import { initiatePaytmPayment } from "@/utils/paytm";
+import { toast } from "sonner";
 
 const getCurrencySymbol = (currency?: string | null) => {
   switch (currency) {
@@ -25,6 +26,7 @@ export default function PublicQuotation() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -57,25 +59,33 @@ export default function PublicQuotation() {
     if (id) fetchData();
   }, [id]);
 
-  const handlePay = () => {
-    if (!profile?.paytm_merchant_id) {
-      alert("Payment gateway is not configured for this account.");
-      return;
+  const handlePay = async () => {
+    try {
+      setIsPaying(true);
+      const data = await initiatePaytmPayment(quotation.id);
+      
+      if (data.error) throw new Error(data.error);
+
+      // Create a hidden form and submit it to Paytm
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = data.url;
+
+      for (const [key, value] of Object.entries(data.params)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value as string;
+        form.appendChild(input);
+      }
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (err: any) {
+      toast.error("Payment failed to initialize: " + err.message);
+    } finally {
+      setIsPaying(false);
     }
-
-    const config = {
-      merchantId: profile.paytm_merchant_id,
-      merchantKey: profile.paytm_merchant_key || "",
-      website: profile.paytm_website || "WEBSTAGING",
-      industryType: profile.paytm_industry_type || "Retail"
-    };
-
-    const subtotal = quotation.quotation_items.reduce((s: any, i: any) => s + i.quantity * i.rate, 0);
-    const gstTotal = quotation.quotation_items.reduce((s: any, i: any) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
-    const amount = subtotal + gstTotal;
-
-    const paymentLink = generatePaytmLink(config, quotation.quotation_number, quotation.user_id, amount);
-    window.location.href = paymentLink;
   };
 
   if (loading) {
@@ -232,7 +242,9 @@ export default function PublicQuotation() {
                     size="lg" 
                     className="w-full sm:w-auto px-12 py-8 text-lg font-black tracking-tight rounded-xl bg-primary hover:bg-primary/90 hover:scale-[1.02] transition-all shadow-xl shadow-primary/20"
                     onClick={handlePay}
+                    disabled={isPaying}
                   >
+                    {isPaying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Proceed to Pay {getCurrencySymbol(quotation.currency)}{total.toFixed(2)}
                   </Button>
                 )}
