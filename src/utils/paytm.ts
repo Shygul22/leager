@@ -38,7 +38,7 @@ export const generatePaytmLink = (
     ORDER_ID: orderId,
     CUST_ID: customerId,
     TXN_AMOUNT: amount.toString(),
-    CALLBACK_URL: "https://nwrontqapnhsjhewlwkc.supabase.co/functions/v1/paytm-callback",
+    CALLBACK_URL: "https://nwrontqapnhsjhewlwkc.supabase.co/functions/v1/smooth-responder",
   };
 
   // Convert to query string for demonstration (Paytm usually expects a POST form)
