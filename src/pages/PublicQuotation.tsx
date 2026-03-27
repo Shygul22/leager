@@ -62,8 +62,17 @@ export default function PublicQuotation() {
   const handlePay = async () => {
     try {
       setIsPaying(true);
-      const data = await initiatePaytmPayment(quotation.id);
+      const { data, error } = await supabase.functions.invoke('initiate-paytm-payment', {
+        body: { quotationId: quotation.id }
+      });
       
+      if (error) {
+        // Try to get the specific error message from the response
+        let msg = typeof error === 'object' ? (error as any).message : "Unknown error";
+        if (data && data.error) msg = data.error;
+        throw new Error(msg);
+      }
+
       if (data.error) throw new Error(data.error);
 
       // Create a hidden form and submit it to Paytm
@@ -82,7 +91,8 @@ export default function PublicQuotation() {
       document.body.appendChild(form);
       form.submit();
     } catch (err: any) {
-      toast.error("Payment failed to initialize: " + err.message);
+      console.error("Payment Error:", err);
+      toast.error(err.message || "Payment failed to initialize");
     } finally {
       setIsPaying(false);
     }
