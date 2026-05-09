@@ -18,11 +18,14 @@ import { Plus, Eye, Trash2, X, Edit, Printer, Search, Package } from "lucide-rea
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
-type InvoiceItem = { id?: string; product_id?: string; description: string; quantity: number; rate: number; gst: number };
+type InvoiceItem = { id?: string; product_id?: string; description: string; quantity: number; rate: number; gst: number; mrp?: number; discount?: number };
 type Invoice = {
   id: string; invoice_number: string; client_id: string | null; client_name: string; client_email: string | null; client_phone: string | null; client_address: string | null; client_gstin: string | null; client_msme_number: string | null; client_num: string | null; client_project_id: string | null; date: string; due_date: string; status: string; notes: string | null; payment_reference: string | null; include_signature: boolean; include_background: boolean; currency: string | null; exchange_rate: number | null; created_at: string;
+  discount_percentage?: number;
+  paid_amount?: number;
   invoice_items?: InvoiceItem[];
 };
+
 
 // Define Transaction type based on the provided diff's context for transactions
 type Transaction = {
@@ -50,7 +53,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Invoices() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // Renamed from editing to editingId to avoid conflict with Transaction type
@@ -62,8 +65,12 @@ export default function Invoices() {
   const [bulkIncludeLogo, setBulkIncludeLogo] = useState(true);
   const [form, setForm] = useState({
     invoice_number: "", client_id: "", client_name: "", client_email: "", client_phone: "", client_address: "", client_gstin: "", client_msme_number: "", client_num: "", client_project_id: "", date: format(new Date(), "yyyy-MM-dd"), due_date: "", notes: "", payment_reference: "", include_signature: true, include_background: true, currency: "INR", exchange_rate: 1,
-    items: [{ description: "", quantity: 1, rate: 0, gst: 0 }] as InvoiceItem[],
+    discount_percentage: 0,
+    paid_amount: 0,
+    status: "draft",
+    items: [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] as InvoiceItem[],
   });
+
 
   const { data: profile } = useQuery({
     queryKey: ["profile", user?.id],
@@ -77,10 +84,15 @@ export default function Invoices() {
   });
 
   const { data: clients = [] } = useQuery({
-    queryKey: ["clients", user?.id],
+    queryKey: ["clients", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase.from("clients").select("*").eq("user_id", user.id).order("name", { ascending: true });
+      let query = supabase.from("clients").select("*");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("name", { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -90,21 +102,32 @@ export default function Invoices() {
   // This query was changed in the diff to fetch transactions, but the file is Invoices.tsx.
   // Reverting to fetch invoices as per original context, but keeping the Transaction type definition.
   const { data: invoices = [] } = useQuery({
-    queryKey: ["invoices", user?.id],
+    queryKey: ["invoices", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase.from("invoices").select("*, invoice_items(*)").eq("user_id", user.id).order("created_at", { ascending: false });
+      // Hierarchy: All staff see shared company invoices
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      let query = supabase.from("invoices").select("*, invoice_items(*)");
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("created_at", { ascending: false });
       if (error) throw error;
       return data as unknown as Invoice[];
     },
-    enabled: !!user,
+    enabled: !!user && !!role,
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ["products", user?.id],
+    queryKey: ["products", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase.from("products").select("*").eq("user_id", user.id).order("name", { ascending: true });
+      let query = supabase.from("products").select("*");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("name", { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -133,8 +156,11 @@ export default function Invoices() {
 
       const invPayload = {
         invoice_number: invNum, client_id: form.client_id || null, client_name: form.client_name, client_email: form.client_email || null, client_phone: form.client_phone || null, client_address: form.client_address || null, client_gstin: form.client_gstin || null, client_msme_number: form.client_msme_number || null, client_num: form.client_num || null, client_project_id: form.client_project_id || null, date: form.date, due_date: form.due_date, notes: form.notes || null, payment_reference: form.payment_reference || null, include_signature: form.include_signature, include_background: form.include_background, currency: form.currency || "INR", exchange_rate: form.exchange_rate || 1,
-        user_id: user.id
+        discount_percentage: form.discount_percentage || 0,
+        paid_amount: form.paid_amount || 0,
+        status: form.status || "draft",
       };
+
 
       let invoiceId = editingId;
 
@@ -147,7 +173,7 @@ export default function Invoices() {
         await supabase.from("invoice_items").delete().eq("invoice_id", editingId);
       } else {
         // 1. Insert New Invoice
-        const { data, error } = await supabase.from("invoices").insert(invPayload).select().single();
+        const { data, error } = await supabase.from("invoices").insert({ ...invPayload, user_id: user.id }).select().single();
         if (error) throw error;
         invoiceId = data.id;
 
@@ -196,7 +222,15 @@ export default function Invoices() {
       }
 
       // 3. Insert Invoice Line Items
-      const items = form.items.filter((i) => i.description).map((i) => ({ invoice_id: invoiceId, description: i.description, quantity: i.quantity, rate: i.rate, gst: i.gst }));
+      const items = form.items.filter((i) => i.description).map((i) => ({ 
+        invoice_id: invoiceId, 
+        description: i.description, 
+        quantity: i.quantity, 
+        rate: i.rate, 
+        gst: i.gst,
+        mrp: i.mrp || 0,
+        discount: i.discount || 0
+      }));
       if (items.length > 0) {
         const { error: itemErr } = await supabase.from("invoice_items").insert(items);
         if (itemErr) throw itemErr;
@@ -210,8 +244,25 @@ export default function Invoices() {
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const { error } = await supabase.from("invoices").update({ status }).eq("id", id);
       if (error) throw error;
+
+      // If status changed to "paid", auto-log income transaction for cash flow sync
+      if (status === "paid") {
+        const inv = invoices.find(i => i.id === id);
+        if (inv && user) {
+          const total = getTotal(inv.invoice_items, inv.discount_percentage);
+          await supabase.from("transactions").insert({
+            user_id: user.id,
+            date: format(new Date(), "yyyy-MM-dd"),
+            description: `Payment Received - Invoice ${inv.invoice_number} - ${inv.client_name}`,
+            category: "Sales",
+            amount: total,
+            type: "income"
+          });
+          queryClient.invalidateQueries({ queryKey: ["transactions"] });
+        }
+      }
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["invoices"] }); toast.success("Status updated"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["invoices"] }); toast.success("Status updated and synced with ledger"); },
   });
 
   const deleteInvoice = useMutation({
@@ -222,11 +273,26 @@ export default function Invoices() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["invoices"] }); toast.success("Invoice deleted"); },
   });
 
-  const addItem = () => setForm({ ...form, items: [...form.items, { description: "", quantity: 1, rate: 0, gst: 0 }] });
+  const addItem = () => setForm({ ...form, items: [...form.items, { description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] });
   const removeItem = (i: number) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
   const updateItem = (i: number, field: keyof InvoiceItem, value: string | number) => {
     const items = [...form.items];
-    (items[i] as any)[field] = value;
+    const item = { ...items[i] } as any;
+    item[field] = value;
+
+    if (field === "mrp" || field === "discount") {
+      const mrp = field === "mrp" ? Number(value) : (item.mrp || 0);
+      const disc = field === "discount" ? Number(value) : (item.discount || 0);
+      item.rate = mrp * (1 - disc / 100);
+    } else if (field === "rate") {
+      const rate = Number(value);
+      const mrp = item.mrp || 0;
+      if (mrp > 0) {
+        item.discount = ((mrp - rate) / mrp) * 100;
+      }
+    }
+
+    items[i] = item;
     setForm({ ...form, items });
   };
 
@@ -237,6 +303,8 @@ export default function Invoices() {
       product_id: product.id,
       description: product.name + (product.description ? ` - ${product.description}` : ""),
       rate: Number(product.rate || 0),
+      mrp: Number(product.rate || 0),
+      discount: 0,
       gst: Number(product.gst_rate || 0)
     };
     setForm({ ...form, items });
@@ -244,7 +312,7 @@ export default function Invoices() {
 
   const openCreate = () => {
     setEditingId(null);
-    let initialItems = [{ description: "", quantity: 1, rate: 0, gst: 0 }];
+    let initialItems = [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }];
 
     if (profile?.default_items) {
       try {
@@ -284,6 +352,9 @@ export default function Invoices() {
       include_background: true,
       currency: profile?.default_currency || "INR",
       exchange_rate: 1,
+      discount_percentage: 0,
+      paid_amount: 0,
+      status: "draft",
       items: initialItems
     });
     setOpen(true);
@@ -310,7 +381,10 @@ export default function Invoices() {
       include_background: inv.include_background ?? true,
       currency: inv.currency || "INR",
       exchange_rate: inv.exchange_rate || 1,
-      items: inv.invoice_items && inv.invoice_items.length > 0 ? inv.invoice_items.map(i => ({ ...i })) : [{ description: "", quantity: 1, rate: 0, gst: 0 }],
+      discount_percentage: inv.discount_percentage || 0,
+      paid_amount: inv.paid_amount || 0,
+      status: inv.status || "draft",
+      items: inv.invoice_items && inv.invoice_items.length > 0 ? inv.invoice_items.map(i => ({ ...i })) : [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }],
     });
     setOpen(true);
   };
@@ -333,11 +407,23 @@ export default function Invoices() {
     }
   };
 
-  const statusColor = (s: string) => s === "paid" ? "default" : s === "sent" ? "secondary" : "outline";
+    const statusColor = (s: string) => {
+      if (s === "paid") return "default";
+      if (s === "partially_paid") return "secondary";
+      if (s === "sent") return "outline";
+      return "outline";
+    };
 
   const getSubtotal = (items?: InvoiceItem[]) => (items || []).reduce((s, i) => s + i.quantity * i.rate, 0);
-  const getGSTTotal = (items?: InvoiceItem[]) => (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
-  const getTotal = (items?: InvoiceItem[]) => getSubtotal(items) + getGSTTotal(items);
+  const getGSTTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
+    const totalGst = (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+    return totalGst * (1 - (discountPercentage || 0) / 100);
+  };
+  const getTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
+    const sub = getSubtotal(items);
+    const disc = sub * ((discountPercentage || 0) / 100);
+    return (sub - disc) + getGSTTotal(items, discountPercentage);
+  };
 
   const handlePrint = () => {
     const originalTitle = document.title;
@@ -417,14 +503,16 @@ export default function Invoices() {
           <Table className="min-w-[800px] md:min-w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12"><Checkbox checked={filteredInvoices.length > 0 && selectedInvoices.length === filteredInvoices.length} onCheckedChange={toggleSelectAll} /></TableHead>
+                <TableHead className="w-12"><Checkbox checked={selectedInvoices.length === filteredInvoices.length && filteredInvoices.length > 0} onCheckedChange={(checked) => setSelectedInvoices(checked ? filteredInvoices.map(i => i.id) : [])} /></TableHead>
                 <TableHead>Invoice #</TableHead>
                 <TableHead>Client</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                <TableHead className="w-36">Actions</TableHead>
+                <TableHead className="text-right">Paid</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -439,25 +527,37 @@ export default function Invoices() {
                   <TableCell>{format(new Date(inv.due_date), "MMM d, yyyy")}</TableCell>
                   <TableCell>
                     <Select value={inv.status} onValueChange={(v) => updateStatus.mutate({ id: inv.id, status: v })}>
-                      <SelectTrigger className="w-24 h-8"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-32 h-8 text-xs font-medium"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="draft">Draft</SelectItem>
                         <SelectItem value="sent">Sent</SelectItem>
+                        <SelectItem value="partially_paid">Partially Paid</SelectItem>
                         <SelectItem value="paid">Paid</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {getCurrencySymbol(inv.currency)}
-                    {getTotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    {getTotal(inv.invoice_items, inv.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </TableCell>
+                  <TableCell className="text-right text-emerald-600 font-medium">
+                    {getCurrencySymbol(inv.currency)}
+                    {(inv.paid_amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </TableCell>
+                  <TableCell className="text-right text-destructive font-bold">
+                    {getCurrencySymbol(inv.currency)}
+                    {(getTotal(inv.invoice_items, inv.discount_percentage) - (inv.paid_amount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 justify-end">
                       <Button variant="ghost" size="icon" onClick={() => setPreview(inv)}><Eye className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(inv)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteInvoice.mutate(inv.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      {(role === "admin" || role === "accounts_manager") && (
+                        <Button variant="ghost" size="icon" onClick={() => deleteInvoice.mutate(inv.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      )}
                     </div>
                   </TableCell>
+
                 </TableRow>
               ))}
             </TableBody>
@@ -531,7 +631,32 @@ export default function Invoices() {
                   disabled={form.currency === (profile?.default_currency || "INR")}
                 />
               </div>
+              <div className="md:col-span-2">
+                <Label>Status</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="sent">Sent</SelectItem>
+                    <SelectItem value="partially_paid">Partially Paid</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="md:col-span-2">
+                <Label>Amount Already Paid ({getCurrencySymbol(form.currency)})</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.paid_amount}
+                  onChange={(e) => setForm({ ...form, paid_amount: parseFloat(e.target.value) || 0 })}
+                  className="bg-emerald-50 border-emerald-200 text-emerald-900 font-medium"
+                />
+              </div>
             </div>
+
 
             {/* 3. Line Items */}
             <div className="space-y-3">
@@ -543,10 +668,12 @@ export default function Invoices() {
                 {/* Desktop Header */}
                 <div className="hidden md:flex gap-2 text-sm font-medium text-muted-foreground mb-2 px-1">
                   <div className="flex-1">Product / Description</div>
-                  <div className="w-20 text-center">Qty</div>
-                  <div className="w-24 text-center">Rate</div>
-                  <div className="w-24 text-center">GST</div>
-                  <div className="w-28 text-right">Amount</div>
+                  <div className="w-16 text-center">Qty</div>
+                  <div className="w-20 text-center">MRP</div>
+                  <div className="w-16 text-center">Disc (%)</div>
+                  <div className="w-20 text-center">Net Rate</div>
+                  <div className="w-20 text-center">GST</div>
+                  <div className="w-24 text-right">Amount</div>
                   <div className="w-10"></div>
                 </div>
                 {form.items.map((item, i) => (
@@ -586,10 +713,25 @@ export default function Invoices() {
                         <Input placeholder="Description" value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} />
                       </div>
                     </div>
-                    <div className="flex flex-wrap sm:flex-nowrap gap-2">
-                      <div className="w-[calc(50%-4px)] sm:w-20"><Input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(i, "quantity", parseFloat(e.target.value) || 0)} /></div>
-                      <div className="w-[calc(50%-4px)] sm:w-24"><Input type="number" step="0.01" placeholder="Rate" value={item.rate} onChange={(e) => updateItem(i, "rate", parseFloat(e.target.value) || 0)} /></div>
-                      <div className="w-full sm:w-24">
+                    <div className="flex flex-wrap sm:flex-nowrap gap-2 items-end">
+                      <div className="w-16">
+                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Qty</Label>
+                        <Input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(i, "quantity", parseFloat(e.target.value) || 0)} />
+                      </div>
+                      <div className="w-24">
+                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">MRP</Label>
+                        <Input type="number" step="0.01" placeholder="MRP" value={item.mrp} onChange={(e) => updateItem(i, "mrp", parseFloat(e.target.value) || 0)} />
+                      </div>
+                      <div className="w-20">
+                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Disc %</Label>
+                        <Input type="number" step="0.1" placeholder="Disc %" value={item.discount} onChange={(e) => updateItem(i, "discount", parseFloat(e.target.value) || 0)} />
+                      </div>
+                      <div className="w-24">
+                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Net Rate</Label>
+                        <Input type="number" step="0.01" placeholder="Rate" value={item.rate} onChange={(e) => updateItem(i, "rate", parseFloat(e.target.value) || 0)} />
+                      </div>
+                      <div className="w-24">
+                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">GST</Label>
                         <Select value={String(item.gst)} onValueChange={(v) => updateItem(i, "gst", parseFloat(v))}>
                           <SelectTrigger className="h-10 bg-background w-full"><SelectValue placeholder="GST" /></SelectTrigger>
                           <SelectContent>
@@ -645,15 +787,31 @@ export default function Invoices() {
                   <span>Subtotal</span>
                   <span>{getCurrencySymbol(form.currency)}{getSubtotal(form.items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                 </div>
+                <div className="flex items-center justify-between text-sm text-red-500 font-medium">
+                  <div className="flex items-center gap-2">
+                    <span>Discount (%)</span>
+                    <Input type="number" className="h-7 w-16 text-xs bg-white text-black" value={form.discount_percentage} onChange={(e) => setForm({ ...form, discount_percentage: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <span>-{getCurrencySymbol(form.currency)}{(getSubtotal(form.items) * (form.discount_percentage / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                </div>
                 <div className="flex justify-between text-sm text-muted-foreground">
                   <span>GST Total</span>
-                  <span>{getCurrencySymbol(form.currency)}{getGSTTotal(form.items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  <span>{getCurrencySymbol(form.currency)}{getGSTTotal(form.items, form.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-xl font-bold pt-3 border-t border-border mt-2">
                   <span>Total</span>
-                  <span className="text-primary">{getCurrencySymbol(form.currency)}{getTotal(form.items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                  <span className="text-primary">{getCurrencySymbol(form.currency)}{getTotal(form.items, form.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-sm text-emerald-600 font-medium pt-1">
+                  <span>Paid Amount</span>
+                  <span>{getCurrencySymbol(form.currency)}{form.paid_amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-lg font-bold text-destructive pt-1 border-t border-dashed mt-1">
+                  <span>Balance Due</span>
+                  <span>{getCurrencySymbol(form.currency)}{(getTotal(form.items, form.discount_percentage) - form.paid_amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
+
             </div>
           </div>
           <DialogFooter className="print:hidden">
@@ -737,6 +895,8 @@ export default function Invoices() {
                   <TableRow>
                     <TableHead>Description</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">MRP</TableHead>
+                    <TableHead className="text-right">Disc (%)</TableHead>
                     <TableHead className="text-right">Rate</TableHead>
                     <TableHead className="text-right">GST</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -747,6 +907,8 @@ export default function Invoices() {
                     <TableRow key={i}>
                       <TableCell className="font-medium">{item.description}</TableCell>
                       <TableCell className="text-right">{item.quantity}</TableCell>
+                      <TableCell className="text-right">{getCurrencySymbol(preview.currency)}{Number(item.mrp || 0).toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{Number(item.discount || 0).toFixed(1)}%</TableCell>
                       <TableCell className="text-right">{getCurrencySymbol(preview.currency)}{Number(item.rate).toFixed(2)}</TableCell>
                       <TableCell className="text-right text-xs">{(item.gst || 0)}%</TableCell>
                       <TableCell className="text-right font-bold">{getCurrencySymbol(preview.currency)}{(Number(item.quantity) * Number(item.rate) * (1 + (item.gst || 0) / 100)).toFixed(2)}</TableCell>
@@ -761,13 +923,19 @@ export default function Invoices() {
                     <span className="text-muted-foreground">Subtotal</span>
                     <span>{getCurrencySymbol(preview.currency)}{getSubtotal(preview.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
+                  {preview.discount_percentage && preview.discount_percentage > 0 ? (
+                    <div className="flex justify-between text-sm text-red-500 font-medium">
+                      <span className="text-muted-foreground">Discount ({preview.discount_percentage}%)</span>
+                      <span>-{getCurrencySymbol(preview.currency)}{(getSubtotal(preview.invoice_items) * (preview.discount_percentage / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Total Tax (GST)</span>
-                    <span>{getCurrencySymbol(preview.currency)}{getGSTTotal(preview.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    <span>{getCurrencySymbol(preview.currency)}{getGSTTotal(preview.invoice_items, preview.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between text-xl font-bold border-t pt-2">
                     <span>Grand Total</span>
-                    <span className="text-primary">{getCurrencySymbol(preview.currency)}{getTotal(preview.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    <span className="text-primary">{getCurrencySymbol(preview.currency)}{getTotal(preview.invoice_items, preview.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
@@ -936,10 +1104,22 @@ export default function Invoices() {
                       <span className="text-muted-foreground">Total Tax (GST)</span>
                       <span>{getCurrencySymbol(inv.currency)}{getGSTTotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                     </div>
-                    <div className="flex justify-between text-xl font-bold border-t pt-2">
-                      <span>Grand Total</span>
-                      <span className="text-primary">{getCurrencySymbol(inv.currency)}{getTotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    <div className="flex justify-between text-xl font-bold pt-3 border-t-2 border-primary mt-2">
+                      <span>Total Amount</span>
+                      <span className="text-primary">{getCurrencySymbol(inv.currency)}{getTotal(inv.invoice_items, inv.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                     </div>
+                    {(inv.paid_amount || 0) > 0 && (
+                      <>
+                        <div className="flex justify-between text-sm text-emerald-600 font-medium pt-2">
+                          <span>Amount Paid</span>
+                          <span>{getCurrencySymbol(inv.currency)}{(inv.paid_amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold text-destructive pt-2 border-t border-dashed mt-2">
+                          <span>Balance Due</span>
+                          <span>{getCurrencySymbol(inv.currency)}{(getTotal(inv.invoice_items, inv.discount_percentage) - (inv.paid_amount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

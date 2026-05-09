@@ -34,7 +34,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Products() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,10 +61,20 @@ export default function Products() {
     });
 
     const { data: products = [], isLoading } = useQuery({
-        queryKey: ["products", user?.id],
+        queryKey: ["products", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("products").select("*").eq("user_id", user.id).order("name", { ascending: true });
+            
+            let query = supabase.from("products").select("*");
+            
+            // Hierarchy: All staff see shared company products
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            
+            const { data, error } = await query.order("name", { ascending: true });
             if (error) throw error;
             return data as Product[];
         },
@@ -81,7 +91,6 @@ export default function Products() {
                 gst_rate: form.gst_rate || 0,
                 hsn_sac_code: form.hsn_sac_code || null,
                 type: form.type || "service",
-                user_id: user.id
             };
 
             if (editingId) {
@@ -89,10 +98,11 @@ export default function Products() {
                 if (error) throw error;
             } else {
                 // Auto-generate HSN if empty
-                if (!payload.hsn_sac_code && profile) {
+                let finalHsn = payload.hsn_sac_code;
+                if (!finalHsn && profile) {
                     const nextSeq = profile.hsn_next_sequence || 1;
                     const prefix = profile.hsn_prefix || "ZEN-";
-                    payload.hsn_sac_code = `${prefix}${String(nextSeq).padStart(3, '0')}`;
+                    finalHsn = `${prefix}${String(nextSeq).padStart(3, '0')}`;
 
                     // Increment sequence in profile
                     await supabase.from("profiles")
@@ -100,10 +110,11 @@ export default function Products() {
                         .eq("id", user.id);
                 }
 
-                const { error } = await supabase.from("products").insert([payload]);
+                const { error } = await supabase.from("products").insert([{ ...payload, hsn_sac_code: finalHsn, user_id: user.id }]);
                 if (error) throw error;
             }
         },
+
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["products"] });
             queryClient.invalidateQueries({ queryKey: ["profile", user?.id] });
@@ -182,7 +193,9 @@ export default function Products() {
                                     <TableCell className="text-right">{p.gst_rate}%</TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="ghost" size="icon" onClick={() => openEdit(p)}><Edit className="h-4 w-4" /></Button>
-                                        <Button variant="ghost" size="icon" onClick={() => deleteProduct.mutate(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                        {(role === "admin" || role === "accounts_manager") && (
+                                            <Button variant="ghost" size="icon" onClick={() => deleteProduct.mutate(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))}

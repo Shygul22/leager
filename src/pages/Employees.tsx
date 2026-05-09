@@ -40,7 +40,7 @@ type Employee = {
 };
 
 export default function Employees() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,60 +67,71 @@ export default function Employees() {
     });
 
     const { data: suppliers = [] } = useQuery({
-        queryKey: ["suppliers", user?.id],
+        queryKey: ["suppliers", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("suppliers").select("*").eq("user_id", user.id).order("name", { ascending: true });
+            let query = supabase.from("suppliers").select("*");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("name", { ascending: true });
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const { data: employees = [], isLoading: loadingEmployees } = useQuery({
-        queryKey: ["employees", user?.id],
+        queryKey: ["employees", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("employees")
-                .select("*")
-                .eq("user_id", user.id)
-                .order("name", { ascending: true });
+            let query = supabase.from("employees").select("*");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("name", { ascending: true });
 
             if (error) throw error;
             return data as Employee[];
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const { data: bills = [], isLoading: loadingBills } = useQuery({
-        queryKey: ["bills", user?.id],
+        queryKey: ["bills", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("bills")
-                .select("*, bill_items(*)")
-                .eq("user_id", user.id);
+            let query = supabase.from("bills").select("*, bill_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
+
     const { data: transactions = [], isLoading: loadingTransactions } = useQuery({
-        queryKey: ["transactions", user?.id],
+        queryKey: ["transactions", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("transactions")
-                .select("*")
-                .eq("user_id", user.id)
-                .eq("type", "expense");
+            let query = supabase.from("transactions").select("*").eq("type", "expense");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
+
 
     const { data: profile } = useQuery({
         queryKey: ["profile", user?.id],
@@ -169,17 +180,17 @@ export default function Employees() {
                 designation: form.designation || null,
                 email: form.email || null,
                 phone: form.phone || null,
-                user_id: user.id
             };
 
             if (editingId) {
                 const { error } = await supabase.from("employees").update(payload).eq("id", editingId);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from("employees").insert(payload);
+                const { error } = await supabase.from("employees").insert({ ...payload, user_id: user.id });
                 if (error) throw error;
             }
         },
+
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["employees"] });
             setOpen(false);
@@ -251,7 +262,6 @@ export default function Employees() {
                 due_date: billForm.due_date || null,
                 notes: billForm.notes || null,
                 category: billForm.category || null,
-                user_id: user.id,
             };
 
             if (editingBillId) {
@@ -269,8 +279,23 @@ export default function Employees() {
                     const { error: itemErr } = await supabase.from("bill_items").insert(items);
                     if (itemErr) throw itemErr;
                 }
+            } else {
+                const { data, error } = await supabase.from("bills").insert({ ...billPayload, user_id: user.id }).select().single();
+                if (error) throw error;
+                const items = billForm.items.filter(i => i.description).map(i => ({
+                    bill_id: data.id,
+                    description: i.description,
+                    quantity: i.quantity,
+                    rate: i.rate,
+                    gst: i.gst
+                }));
+                if (items.length > 0) {
+                    const { error: itemErr } = await supabase.from("bill_items").insert(items);
+                    if (itemErr) throw itemErr;
+                }
             }
         },
+
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["bills"] });
             queryClient.invalidateQueries({ queryKey: ["transactions"] });

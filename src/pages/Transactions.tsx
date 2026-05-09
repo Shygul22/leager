@@ -26,8 +26,10 @@ type Transaction = {
   category: string;
   date: string;
   employee_id?: string | null;
+  client_id?: string | null;
   created_at: string;
   employees?: { name: string };
+  clients?: { name: string };
 };
 
 const CATEGORIES = ["General", "Salary", "Food", "Transport", "Utilities", "Entertainment", "Health", "Shopping", "Other"];
@@ -43,34 +45,60 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Transactions() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
   const [editing, setEditing] = useState<Transaction | null>(null);
-  const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "" });
+  const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
 
   const { data: transactions = [] } = useQuery({
-    queryKey: ["transactions", user?.id],
+    queryKey: ["transactions", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase.from("transactions").select("*, employees(name)").eq("user_id", user.id).order("date", { ascending: false });
+      let query = supabase.from("transactions").select("*, employees(name), clients(name)");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("date", { ascending: false });
       if (error) throw error;
       return data as Transaction[];
     },
-    enabled: !!user,
+    enabled: !!user && !!role,
   });
 
   const { data: employees = [] } = useQuery({
-    queryKey: ["employees", user?.id],
+    queryKey: ["employees", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase.from("employees").select("*").eq("user_id", user.id).order("name", { ascending: true });
+      let query = supabase.from("employees").select("*");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("name", { ascending: true });
       if (error) throw error;
       return data;
     },
-    enabled: !!user,
+    enabled: !!user && !!role,
+  });
+
+  const { data: clients = [] } = useQuery({
+    queryKey: ["clients", user?.id, role],
+    queryFn: async () => {
+      if (!user) return [];
+      let query = supabase.from("clients").select("*");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("name", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!role,
   });
 
   const { data: profile } = useQuery({
@@ -119,7 +147,8 @@ export default function Transactions() {
         type: values.type,
         category: values.category,
         date: values.date,
-        employee_id: values.employee_id || null,
+        employee_id: (values.employee_id === "none" || !values.employee_id) ? null : values.employee_id,
+        client_id: (values.client_id === "none" || !values.client_id) ? null : values.client_id,
         user_id: user.id
       };
       if (values.id) {
@@ -362,11 +391,9 @@ export default function Transactions() {
                   <SelectTrigger><SelectValue placeholder="Attribute to client" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">None / Company</SelectItem>
-                    {queryClient.getQueryData(["clients", user?.id]) instanceof Array && 
-                      (queryClient.getQueryData(["clients", user?.id]) as any[]).map(c => 
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      )
-                    }
+                    {clients.map(c => 
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

@@ -10,30 +10,41 @@ import { format, startOfMonth, endOfMonth, subMonths, isWithinInterval, parseISO
 import { Download, Printer, Filter, ArrowUpRight, ArrowDownRight, Scale } from "lucide-react";
 
 export default function TaxReports() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const [dateRange, setDateRange] = useState("current"); // current, last, last3, all
 
     const { data: invoices = [], isLoading: invLoading } = useQuery({
-        queryKey: ["invoices-tax", user?.id],
+        queryKey: ["invoices-tax", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("invoices").select("*, invoice_items(*)").eq("user_id", user.id);
+            let query = supabase.from("invoices").select("*, invoice_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const { data: bills = [], isLoading: billsLoading } = useQuery({
-        queryKey: ["bills-tax", user?.id],
+        queryKey: ["bills-tax", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("bills").select("*, bill_items(*)").eq("user_id", user.id);
+            let query = supabase.from("bills").select("*, bill_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
+
 
     const filteredData = useMemo(() => {
         let start = new Date(0);

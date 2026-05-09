@@ -1,13 +1,13 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import PaytmChecksum from "npm:paytmchecksum"
+import PaytmChecksumModule from "npm:paytmchecksum"
+const PaytmChecksum = (PaytmChecksumModule as any).default || PaytmChecksumModule
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -89,10 +89,15 @@ serve(async (req) => {
     })
 
   } catch (error: any) {
-    console.error("Global Function Error:", error.message)
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error("Global Function Error:", error)
+    // We return a 200 status with an error field to avoid the generic "non-2xx" error from Supabase client
+    // which makes debugging much harder.
+    return new Response(JSON.stringify({ 
+      error: error.message || "An unexpected error occurred",
+      details: error.stack
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: 200,
     })
   }
 })

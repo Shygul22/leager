@@ -25,7 +25,7 @@ type Supplier = {
 };
 
 export default function Suppliers() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -41,14 +41,19 @@ export default function Suppliers() {
     });
 
     const { data: suppliers = [], isLoading } = useQuery({
-        queryKey: ["suppliers", user?.id],
+        queryKey: ["suppliers", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("suppliers")
-                .select("*")
-                .eq("user_id", user.id)
-                .order("name", { ascending: true });
+            let query = supabase.from("suppliers").select("*");
+            
+            // Hierarchy: All staff see shared company suppliers
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            
+            const { data, error } = await query.order("name", { ascending: true });
 
             if (error) throw error;
             return data as Supplier[];
@@ -68,17 +73,17 @@ export default function Suppliers() {
                 address: form.address || null,
                 gstin: form.gstin || null,
                 category: form.category || null,
-                user_id: user.id
             };
 
             if (editingId) {
                 const { error } = await supabase.from("suppliers").update(payload).eq("id", editingId);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from("suppliers").insert(payload);
+                const { error } = await supabase.from("suppliers").insert({ ...payload, user_id: user.id });
                 if (error) throw error;
             }
         },
+
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["suppliers"] });
             setOpen(false);
@@ -199,9 +204,11 @@ export default function Suppliers() {
                                                 <Button variant="ghost" size="icon" onClick={() => openEdit(supplier)}>
                                                     <Edit className="h-4 w-4" />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" onClick={() => deleteSupplier.mutate(supplier.id)}>
-                                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                                </Button>
+                                                {(role === "admin" || role === "accounts_manager") && (
+                                                    <Button variant="ghost" size="icon" onClick={() => deleteSupplier.mutate(supplier.id)}>
+                                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                                    </Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                     </TableRow>

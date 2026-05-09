@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Mail, Phone, MapPin, Edit, Globe, History, Receipt } from "lucide-react";
+import { Plus, Trash2, Mail, Phone, MapPin, Edit, Globe, History, Receipt, CheckCircle2, Clock, Search, Eye, TrendingUp, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,14 +27,18 @@ type Client = {
     currency: string | null;
     created_at: string;
     total_spent?: number;
+    paid_amount?: number;
+    balance_due?: number;
 };
 
 export default function Clients() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [historyClient, setHistoryClient] = useState<Client | null>(null);
+    const [previewClient, setPreviewClient] = useState<Client | null>(null);
+    const [search, setSearch] = useState("");
 
     const [form, setForm] = useState({
         name: "",
@@ -47,30 +51,60 @@ export default function Clients() {
         currency: "INR"
     });
 
+    const { data: transactions = [] } = useQuery({
+        queryKey: ["transactions", user?.id, role],
+        queryFn: async () => {
+            if (!user) return [];
+            let query = supabase.from("transactions").select("*");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("date", { ascending: false });
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!user && !!role,
+    });
+
+    const { data: invoices = [] } = useQuery({
+        queryKey: ["invoices", user?.id, role],
+        queryFn: async () => {
+            if (!user) return [];
+            let query = supabase.from("invoices").select("*, invoice_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!user && !!role,
+    });
+
     const { data: clients = [], isLoading } = useQuery({
-        queryKey: ["clients", user?.id],
+        queryKey: ["clients", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
             // 1. Fetch Clients
-            const { data: clientsData, error: clientsError } = await supabase
-                .from("clients")
-                .select("*")
-                .eq("user_id", user.id)
-                .order("name", { ascending: true });
+            let query = supabase.from("clients").select("*");
+            
+            // Hierarchy: Admin and Managers see everything. 
+            // In a company setup, we usually want Staff to see the shared client list too.
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            
+            const { data: clientsData, error: clientsError } = await query.order("name", { ascending: true });
 
             if (clientsError) throw clientsError;
 
-            // 2. Fetch Invoices with items to calculate spend
-            const { data: invoicesData, error: invoicesError } = await supabase
-                .from("invoices")
-                .select("*, invoice_items(*)")
-                .eq("user_id", user.id);
-
-            if (invoicesError) throw invoicesError;
-
-            // 3. Map spend to clients
+            // 2. Map spend to clients
             return (clientsData as Client[]).map(client => {
-                const clientInvoices = (invoicesData || []).filter(inv => 
+                const clientInvoices = (invoices || []).filter(inv => 
                     inv.client_id === client.id || inv.client_name === client.name
                 );
                 
@@ -78,13 +112,26 @@ export default function Clients() {
                     const invTotal = (inv.invoice_items as any[] || []).reduce((s, i) => 
                         s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
                     );
-                    return sum + invTotal;
+                    const discountPercentage = inv.discount_percentage || 0;
+                    const discountAmount = invTotal * (discountPercentage / 100);
+                    const totalWithDiscount = invTotal - discountAmount;
+                    return sum + totalWithDiscount;
                 }, 0);
 
-                return { ...client, total_spent: totalSpent };
+                const paidAmount = clientInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => {
+                    const invTotal = (inv.invoice_items as any[] || []).reduce((s, i) => 
+                        s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
+                    );
+                    const discountPercentage = inv.discount_percentage || 0;
+                    const discountAmount = invTotal * (discountPercentage / 100);
+                    const totalWithDiscount = invTotal - discountAmount;
+                    return sum + totalWithDiscount;
+                }, 0);
+
+                return { ...client, total_spent: totalSpent, paid_amount: paidAmount, balance_due: totalSpent - paidAmount };
             });
         },
-        enabled: !!user,
+        enabled: !!user && !!role && !!invoices,
     });
 
     const upsertClient = useMutation({
@@ -100,17 +147,17 @@ export default function Clients() {
                 msme_number: form.msme_number || null,
                 client_number: form.client_number || null,
                 currency: form.currency || "INR",
-                user_id: user.id
             };
 
             if (editingId) {
                 const { error } = await supabase.from("clients").update(payload).eq("id", editingId);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from("clients").insert(payload);
+                const { error } = await supabase.from("clients").insert({ ...payload, user_id: user.id });
                 if (error) throw error;
             }
         },
+
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["clients"] });
             setOpen(false);
@@ -155,14 +202,25 @@ export default function Clients() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Clients</h1>
                     <p className="text-muted-foreground text-sm mt-1">Manage your customer address book for faster invoicing.</p>
                 </div>
-                <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Client
-                </Button>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input 
+                            placeholder="Search by name, ID or email..." 
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="pl-9"
+                        />
+                    </div>
+                    <Button onClick={openCreate}>
+                        <Plus className="mr-2 h-4 w-4" /> Add Client
+                    </Button>
+                </div>
             </div>
 
             <Card>
@@ -175,19 +233,40 @@ export default function Clients() {
                                 <TableHead>Location</TableHead>
                                 <TableHead>Currency</TableHead>
                                 <TableHead>Client No. / Tax IDs</TableHead>
-                                <TableHead className="text-right">Total Spent</TableHead>
+                                <TableHead className="text-right">Total Invoiced</TableHead>
+                                <TableHead className="text-right">Balance Due</TableHead>
                                 <TableHead className="w-32 text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {clients.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="text-center text-muted-foreground py-12">
-                                        {isLoading ? "Loading clients..." : "No clients found. Click 'Add Client' to build your CRM."}
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                clients.map((client) => (
+                            {(() => {
+                                const filteredClients = clients.filter(c => 
+                                    c.name.toLowerCase().includes(search.toLowerCase()) ||
+                                    c.email?.toLowerCase().includes(search.toLowerCase()) ||
+                                    c.client_number?.toLowerCase().includes(search.toLowerCase())
+                                );
+
+                                if (filteredClients.length === 0 && clients.length > 0) {
+                                    return (
+                                        <TableRow>
+                                            <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
+                                                No clients found matching "{search}"
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                }
+
+                                if (clients.length === 0) {
+                                    return (
+                                        <TableRow>
+                                            <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
+                                                {isLoading ? "Loading clients..." : "No clients found. Click 'Add Client' to build your CRM."}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                }
+
+                                return filteredClients.map((client) => (
                                     <TableRow key={client.id}>
                                         <TableCell className="font-medium">{client.name}</TableCell>
                                         <TableCell>
@@ -229,31 +308,171 @@ export default function Clients() {
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <div className="font-bold text-primary">
+                                            <div className="font-bold text-slate-900">
                                                 {client.currency || "INR"} {client.total_spent?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
+                                            <div className={`font-bold ${client.balance_due && client.balance_due > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                                {client.currency || "INR"} {client.balance_due?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
                                             <div className="flex justify-end gap-1">
+                                                <Button variant="ghost" size="icon" title="View Client Dashboard" onClick={() => setPreviewClient(client)}>
+                                                    <Eye className="h-4 w-4 text-indigo-500" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" title="Open Client Portal" onClick={() => { sessionStorage.setItem("active_portal_client", JSON.stringify(client)); window.open(`/portal/${client.client_number || client.id}`, '_blank'); }}>
+                                                    <Globe className="h-4 w-4 text-blue-500" />
+                                                </Button>
                                                 <Button variant="ghost" size="icon" title="Transaction History" onClick={() => setHistoryClient(client)}>
                                                     <History className="h-4 w-4" />
                                                 </Button>
                                                 <Button variant="ghost" size="icon" onClick={() => openEdit(client)}>
                                                     <Edit className="h-4 w-4" />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" onClick={() => deleteClient.mutate(client.id)}>
-                                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                                </Button>
+                                                {(role === "admin" || role === "accounts_manager") && (
+                                                    <Button variant="ghost" size="icon" onClick={() => deleteClient.mutate(client.id)}>
+                                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                                    </Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
+                                ));
+                            })()}
                         </TableBody>
                     </Table>
                 </CardContent>
             </Card>
 
+            {/* ── Admin: Client Dashboard Preview ── */}
+            <Dialog open={!!previewClient} onOpenChange={(o) => !o && setPreviewClient(null)}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+                    {previewClient && (() => {
+                        const cInvoices = invoices.filter(inv => inv.client_id === previewClient.id || inv.client_name === previewClient.name);
+                        const cProjects = []; // projects fetched via ClientPortal; here we show invoices
+                        const fmt = (n: number) => n.toLocaleString("en-IN", { style: "currency", currency: previewClient.currency || "INR", minimumFractionDigits: 2 });
+                        const totalValue = cInvoices.reduce((s, inv) => {
+                            const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                            return s + base * (1 - (inv.discount_percentage || 0) / 100);
+                        }, 0);
+                        const totalPaid = cInvoices.filter(i => i.status === "paid").reduce((s, inv) => {
+                            const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                            return s + base * (1 - (inv.discount_percentage || 0) / 100);
+                        }, 0);
+                        const balanceDue = totalValue - totalPaid;
+                        const pending = cInvoices.filter(i => i.status !== "paid" && i.status !== "draft");
+
+                        return (
+                            <div className="min-h-[400px]">
+                                {/* Header */}
+                                <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 px-6 py-5">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-blue-200 text-xs font-bold uppercase tracking-widest mb-0.5">Admin View — Read Only</p>
+                                            <h2 className="text-xl font-extrabold text-white">{previewClient.name}</h2>
+                                            <p className="text-blue-200 text-xs mt-0.5">{previewClient.client_number} {previewClient.email && `· ${previewClient.email}`}</p>
+                                        </div>
+                                        <div className="bg-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-bold uppercase tracking-widest">Dashboard Preview</div>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 space-y-6">
+                                    {/* Stats */}
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Total Value</p>
+                                            <p className="text-xl font-extrabold text-gray-900">{fmt(totalValue)}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.length} invoice{cInvoices.length !== 1 ? 's' : ''}</p>
+                                        </div>
+                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Amount Paid</p>
+                                            <p className="text-xl font-extrabold text-emerald-600">{fmt(totalPaid)}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.filter(i => i.status === 'paid').length} paid</p>
+                                        </div>
+                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Balance Due</p>
+                                            <p className={`text-xl font-extrabold ${balanceDue > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{fmt(balanceDue)}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Invoices Table */}
+                                    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                                        <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-gray-900">Invoices</h3>
+                                                <p className="text-xs text-gray-400">{cInvoices.length} total records</p>
+                                            </div>
+                                            <FileText className="h-4 w-4 text-gray-300" />
+                                        </div>
+                                        {cInvoices.length === 0 ? (
+                                            <div className="p-8 text-center">
+                                                <FileText className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+                                                <p className="text-sm text-gray-400">No invoices found for this client.</p>
+                                            </div>
+                                        ) : (
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>Invoice #</TableHead>
+                                                        <TableHead>Date</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead className="text-right">Amount</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {cInvoices.slice(0, 10).map(inv => {
+                                                        const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                                                        const total = base * (1 - (inv.discount_percentage || 0) / 100);
+                                                        return (
+                                                            <TableRow key={inv.id}>
+                                                                <TableCell className="font-mono text-xs font-bold">{inv.invoice_number}</TableCell>
+                                                                <TableCell className="text-xs text-gray-500">{inv.date ? format(new Date(inv.date), "MMM d, yyyy") : "—"}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant={inv.status === 'paid' ? 'default' : inv.status === 'draft' ? 'secondary' : 'outline'} className="text-[10px] uppercase">
+                                                                        {inv.status}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-right font-bold text-sm">{fmt(total)}</TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        )}
+                                    </div>
+
+                                    {/* Quick Info */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {previewClient.phone && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <Phone className="h-4 w-4 text-gray-400" />
+                                                {previewClient.phone}
+                                            </div>
+                                        )}
+                                        {previewClient.address && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <MapPin className="h-4 w-4 text-gray-400" />
+                                                {previewClient.address}
+                                            </div>
+                                        )}
+                                        {previewClient.gstin && (
+                                            <div className="text-sm text-gray-600"><span className="font-bold text-gray-400 text-xs uppercase mr-1">GSTIN:</span>{previewClient.gstin}</div>
+                                        )}
+                                        {previewClient.msme_number && (
+                                            <div className="text-sm text-gray-600"><span className="font-bold text-gray-400 text-xs uppercase mr-1">MSME:</span>{previewClient.msme_number}</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Add/Edit Client Dialog ── */}
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
@@ -378,16 +597,29 @@ export default function Clients() {
                     
                     <div className="space-y-6 py-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <Card className="bg-primary/5 border-primary/20">
+                            <Card className="bg-emerald-50 border-emerald-200">
                                 <CardHeader className="py-3 px-4 flex flex-row items-center justify-between space-y-0">
-                                    <div className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center">
-                                        <Receipt className="h-3.5 w-3.5 mr-2" /> Total Invoiced
+                                    <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider flex items-center">
+                                        <CheckCircle2 className="h-3.5 w-3.5 mr-2" /> Paid Amount
                                     </div>
                                 </CardHeader>
                                 <CardContent className="py-2 px-4 pb-4">
-                                    <div className="text-3xl font-bold tracking-tight">
-                                        <span className="text-sm font-medium mr-1 text-muted-foreground">{historyClient?.currency || "INR"}</span>
-                                        {historyClient?.total_spent?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                    <div className="text-3xl font-bold tracking-tight text-emerald-700">
+                                        <span className="text-sm font-medium mr-1 opacity-70">{historyClient?.currency || "INR"}</span>
+                                        {historyClient?.paid_amount?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card className="bg-amber-50 border-amber-200">
+                                <CardHeader className="py-3 px-4 flex flex-row items-center justify-between space-y-0">
+                                    <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider flex items-center">
+                                        <Clock className="h-3.5 w-3.5 mr-2" /> Balance Due
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="py-2 px-4 pb-4">
+                                    <div className="text-3xl font-bold tracking-tight text-amber-700">
+                                        <span className="text-sm font-medium mr-1 opacity-70">{historyClient?.currency || "INR"}</span>
+                                        {historyClient?.balance_due?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -409,10 +641,10 @@ export default function Clients() {
                                     </TableHeader>
                                     <TableBody>
                                         {(() => {
-                                            const clientTxs = (queryClient.getQueryData(["transactions", user?.id]) as any[] || [])
+                                            const clientTxs = (transactions as any[] || [])
                                                 .filter(t => t.client_id === historyClient?.id);
                                             
-                                            const clientInvoices = (queryClient.getQueryData(["invoices", user?.id]) as any[] || [])
+                                            const clientInvoices = (invoices as any[] || [])
                                                 .filter(inv => inv.client_id === historyClient?.id || inv.client_name === historyClient?.name);
 
                                             const combined = [
@@ -422,7 +654,7 @@ export default function Clients() {
                                                     date: inv.date,
                                                     description: `Invoice ${inv.invoice_number}`,
                                                     type: 'income',
-                                                    amount: (inv.invoice_items || []).reduce((s, i) => s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0),
+                                                    amount: (inv.invoice_items || []).reduce((s: number, i: any) => s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0),
                                                     source: 'invoice'
                                                 }))
                                             ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

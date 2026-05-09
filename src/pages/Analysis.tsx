@@ -10,6 +10,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { TrendingUp, TrendingDown, Wallet, IndianRupee, AlertCircle, ShoppingBag } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getBillTotal, getInvoiceTotal } from "@/lib/utils";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#d0ed57', '#a4de6c'];
 
@@ -24,7 +25,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Analysis() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
 
     const { data: profile } = useQuery({
@@ -46,46 +47,51 @@ export default function Analysis() {
     };
 
     const { data: transactions = [] } = useQuery({
-        queryKey: ["transactions", user?.id],
+        queryKey: ["transactions", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("transactions")
-                .select("*, employees(name)")
-                .eq("user_id", user.id)
-                .order("date", { ascending: true });
+            let query = supabase.from("transactions").select("*, employees(name)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("date", { ascending: true });
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const { data: bills = [] } = useQuery({
-        queryKey: ["bills", user?.id],
+        queryKey: ["bills", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("bills")
-                .select("*, suppliers(name), employees(name), bill_items(*)")
-                .eq("user_id", user.id);
+            let query = supabase.from("bills").select("*, suppliers(name), employees(name), bill_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const { data: invoices = [] } = useQuery({
-        queryKey: ["invoices", user?.id],
+        queryKey: ["invoices", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("invoices")
-                .select("*, invoice_items(*)")
-                .eq("user_id", user.id);
+            let query = supabase.from("invoices").select("*, invoice_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         },
-        enabled: !!user,
+        enabled: !!user && !!role,
     });
 
     const uniqueMonths = useMemo(() => {
@@ -106,10 +112,7 @@ export default function Analysis() {
     const incomeTxs = filteredTransactions.filter((t) => t.type === "income");
     const expenseTxs = filteredTransactions.filter((t) => t.type === "expense");
 
-    const totalIncome = incomeTxs.reduce((sum, t) => sum + Number(t.amount), 0);
-    const totalExpense = expenseTxs.reduce((sum, t) => sum + Number(t.amount), 0);
-    const balance = totalIncome - totalExpense;
-
+    // Accrual Logic (Net Profit)
     const filteredBills = useMemo(() => {
         if (selectedRange === "all") return bills;
         if (selectedRange === "today") return bills.filter(b => isToday(parseISO(b.date)));
@@ -117,7 +120,52 @@ export default function Analysis() {
         return bills.filter(b => format(new Date(b.date), "MMM yyyy") === selectedRange);
     }, [bills, selectedRange]);
 
-    const getBillTotal = (items: any[]) => (items || []).reduce((s, i) => s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0);
+    const filteredInvoices = useMemo(() => {
+        if (selectedRange === "all") return invoices;
+        if (selectedRange === "today") return invoices.filter((inv: any) => isToday(parseISO(inv.date)));
+        if (selectedRange === "this-week") return invoices.filter((inv: any) => isThisWeek(parseISO(inv.date)));
+        return invoices.filter((inv: any) => format(new Date(inv.date), "MMM yyyy") === selectedRange);
+    }, [invoices, selectedRange]);
+
+    const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + getInvoiceTotal(inv.invoice_items, inv.discount_percentage), 0);
+    const totalBillsCost = filteredBills.reduce((sum, b) => sum + getBillTotal(b.bill_items), 0);
+    
+    // Cash Logic (Actual Cash Flow / Savings)
+    const invoiceIncome = filteredInvoices.reduce((sum, inv: any) => sum + (Number(inv.paid_amount) || 0), 0);
+    const manualIncome = incomeTxs
+        .filter(t => !t.description?.startsWith("Payment Received - Invoice "))
+        .reduce((sum, t) => sum + Number(t.amount), 0);
+    
+    const totalCashIn = invoiceIncome + manualIncome;
+    const totalCashOut = expenseTxs.reduce((sum, t) => sum + Number(t.amount), 0);
+    const savingAmount = totalCashIn - totalCashOut;
+
+    const futureInvoices = useMemo(() => {
+        return invoices.filter((inv: any) => inv.status === "draft" || (inv.date && new Date(inv.date) > new Date()));
+    }, [invoices]);
+
+    const futureAmount = useMemo(() => {
+        return futureInvoices.reduce((sum, inv) => sum + getInvoiceTotal(inv.invoice_items, inv.discount_percentage), 0);
+    }, [futureInvoices]);
+
+    // Requested: Total Costs (Calculated in Transactions)
+    const totalTransactionsCost = totalCashOut;
+
+    // Requested: Outstanding Amount (Balance due from invoices)
+    const outstandingAmount = filteredInvoices.reduce((sum, inv) => {
+        const total = getInvoiceTotal(inv.invoice_items, inv.discount_percentage);
+        const paid = Number(inv.paid_amount) || 0;
+        return sum + (total - paid);
+    }, 0);
+
+    // Operating expenses are manual expenses NOT logged as bill payments
+    const operatingExpenses = expenseTxs
+        .filter(t => !t.description?.startsWith("Paid Bill "))
+        .reduce((sum, t) => sum + Number(t.amount), 0);
+
+    const totalCost = totalBillsCost + operatingExpenses;
+    const netProfit = totalRevenue - totalTransactionsCost;
+    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
     const outstandingBills = bills.filter(b => b.status === "pending").reduce((sum, b) => sum + getBillTotal(b.bill_items), 0);
 
@@ -131,13 +179,6 @@ export default function Analysis() {
     const supplierData = Array.from(supplierMap.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
     // Client Revenue Map
-    const filteredInvoices = useMemo(() => {
-        if (selectedRange === "all") return invoices;
-        if (selectedRange === "today") return invoices.filter((inv: any) => isToday(parseISO(inv.date)));
-        if (selectedRange === "this-week") return invoices.filter((inv: any) => isThisWeek(parseISO(inv.date)));
-        return invoices.filter((inv: any) => format(new Date(inv.date), "MMM yyyy") === selectedRange);
-    }, [invoices, selectedRange]);
-
     const clientMap = new Map<string, number>();
     filteredInvoices.forEach((inv: any) => {
         const name = inv.client_name || "Unknown Client";
@@ -175,7 +216,49 @@ export default function Analysis() {
     });
     const pieData = Array.from(categoryMap.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
-    // Line/Bar Chart Data (Monthly Trend)
+    // Profit vs Savings Trend Data (Synced Logic)
+    const trendMap = new Map<string, { revenue: number; cost: number; savings: number; collected: number }>();
+    
+    invoices.forEach(inv => {
+        const month = format(new Date(inv.date), "MMM yyyy");
+        const existing = trendMap.get(month) || { revenue: 0, cost: 0, savings: 0, collected: 0 };
+        existing.revenue += getInvoiceTotal(inv.invoice_items, inv.discount_percentage);
+        existing.collected += (Number(inv.paid_amount) || 0);
+        trendMap.set(month, existing);
+    });
+
+    // Bills are tracked for cost in the accrual profit calculation if you want, 
+    // but the user asked for Total Costs from Transactions.
+    // However, for a trend, it's good to show both. Let's stick to their requested "Transactions Only" cost for consistency.
+
+    transactions.forEach(t => {
+        const month = format(new Date(t.date), "MMM yyyy");
+        const existing = trendMap.get(month) || { revenue: 0, cost: 0, savings: 0, collected: 0 };
+        
+        if (t.type === "income") {
+            // Only add manual income not from invoices to avoid double counting
+            if (!t.description?.startsWith("Payment Received - Invoice ")) {
+                existing.collected += Number(t.amount);
+            }
+        } else {
+            existing.cost += Number(t.amount);
+        }
+        trendMap.set(month, existing);
+    });
+
+    const profitSavingsData = Array.from(trendMap.entries())
+        .map(([month, vals]) => ({ 
+            month, 
+            profit: vals.revenue - vals.cost, 
+            savings: vals.collected - vals.cost,
+            revenue: vals.revenue,
+            costs: vals.cost,
+            cashFlow: vals.collected - vals.cost,
+            outstanding: vals.revenue - vals.collected
+        }))
+        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+
+    // Original Monthly Trend (Income vs Expense)
     const chartMap = new Map<string, { income: number; expense: number }>();
     transactions.forEach((t) => {
         const month = format(new Date(t.date), "MMM yyyy");
@@ -210,54 +293,72 @@ export default function Analysis() {
                 </Select>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-4">
-                <Card>
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+                <Card className="border-l-4 border-l-emerald-500 shadow-sm">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Income</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-emerald-600" />
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Total Revenue</CardTitle>
+                        <TrendingUp className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
                         <p className="text-2xl font-bold text-emerald-600">
                             {getCurrencySymbol(profile?.default_currency)}
-                            {formatAmount(totalIncome)}
+                            {formatAmount(totalRevenue)}
                         </p>
+                        <p className="text-[9px] text-muted-foreground font-semibold mt-1 uppercase tracking-widest text-right">Total Invoiced</p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-l-4 border-l-destructive shadow-sm">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Expenses</CardTitle>
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Total Costs</CardTitle>
                         <TrendingDown className="h-4 w-4 text-destructive" />
                     </CardHeader>
                     <CardContent>
                         <p className="text-2xl font-bold text-destructive">
                             {getCurrencySymbol(profile?.default_currency)}
-                            {formatAmount(totalExpense)}
+                            {formatAmount(totalTransactionsCost)}
+                        </p>
+                        <p className="text-[9px] text-muted-foreground font-semibold mt-1 uppercase tracking-widest text-right">Ledger Transactions</p>
+                    </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-blue-500 shadow-sm">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Net Profit</CardTitle>
+                        <IndianRupee className="h-4 w-4 text-blue-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-blue-600" : "text-destructive"}`}>
+                            {getCurrencySymbol(profile?.default_currency)}
+                            {formatAmount(netProfit)}
+                        </p>
+                        <p className={`text-[9px] font-bold mt-1 uppercase tracking-widest text-right ${profitMargin >= 0 ? "text-blue-500" : "text-destructive"}`}>
+                            Margin: {profitMargin.toFixed(1)}%
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-l-4 border-l-orange-500 shadow-sm">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Net Balance</CardTitle>
-                        <Wallet className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Client Balance</CardTitle>
+                        <AlertCircle className="h-4 w-4 text-orange-500" />
                     </CardHeader>
                     <CardContent>
-                        <p className={`text-2xl font-bold ${balance >= 0 ? "text-emerald-600" : "text-destructive"}`}>
+                        <p className="text-2xl font-bold text-orange-600">
                             {getCurrencySymbol(profile?.default_currency)}
-                            {formatAmount(balance)}
+                            {formatAmount(outstandingAmount)}
                         </p>
+                        <p className="text-[9px] text-muted-foreground font-semibold mt-1 uppercase tracking-widest text-right">Outstanding Amount</p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-l-4 border-l-amber-500 shadow-sm">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Accounts Payable</CardTitle>
-                        <AlertCircle className="h-4 w-4 text-amber-500" />
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Actual Cash flow</CardTitle>
+                        <Wallet className="h-4 w-4 text-amber-500" />
                     </CardHeader>
                     <CardContent>
-                        <p className="text-2xl font-bold text-amber-500">
+                        <p className={`text-2xl font-bold ${savingAmount >= 0 ? "text-amber-600" : "text-destructive"}`}>
                             {getCurrencySymbol(profile?.default_currency)}
-                            {formatAmount(outstandingBills)}
+                            {formatAmount(savingAmount)}
                         </p>
-                        <p className="text-xs text-muted-foreground">Unpaid pending bills</p>
+                        <p className="text-[9px] text-muted-foreground font-semibold mt-1 uppercase tracking-widest text-right">Total Savings</p>
                     </CardContent>
                 </Card>
             </div>
@@ -393,27 +494,27 @@ export default function Analysis() {
                     </CardContent>
                 </Card>
 
-                <Card className="col-span-1">
+                <Card className="col-span-1 md:col-span-2">
                     <CardHeader>
-                        <CardTitle className="text-sm font-medium">Income vs Expenses Details</CardTitle>
+                        <CardTitle className="text-sm font-medium">Profit vs Savings Trend</CardTitle>
                     </CardHeader>
                     <CardContent className="h-[400px] p-0">
-                        {monthlyData.length > 0 ? (
+                        {profitSavingsData.length > 0 ? (
                             <div className="w-full h-full">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                                    <BarChart data={profitSavingsData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                                         <XAxis dataKey="month" className="text-xs" />
                                         <YAxis className="text-xs" />
                                         <RechartsTooltip formatter={(value: number) => `${getCurrencySymbol(profile?.default_currency)}${formatAmount(value)}`} />
                                         <Legend />
-                                        <Bar dataKey="income" fill="hsl(142, 71%, 45%)" name="Income" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="expense" fill="hsl(0, 84%, 60%)" name="Expense" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="profit" fill="hsl(217, 91%, 60%)" name="Accrual Profit" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="savings" fill="hsl(38, 92%, 50%)" name="Cash Savings" radius={[4, 4, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
                         ) : (
-                            <div className="h-full flex items-center justify-center text-muted-foreground">No data available</div>
+                            <div className="h-full flex items-center justify-center text-muted-foreground">No trend data available</div>
                         )}
                     </CardContent>
                 </Card>
@@ -452,7 +553,111 @@ export default function Analysis() {
                         )}
                     </CardContent>
                 </Card>
+
+                {/* Future Billing / Forecast */}
+                <Card className="col-span-1 md:col-span-2 shadow-sm overflow-hidden border-t-4 border-t-blue-500">
+                    <CardHeader className="bg-blue-50/30 border-b">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-bold uppercase tracking-widest text-blue-700 flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4" />
+                                Future Forecast
+                            </CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="px-4 py-3 font-semibold text-[10px] uppercase text-muted-foreground">Upcoming Item</th>
+                                        <th className="px-4 py-3 font-semibold text-[10px] uppercase text-muted-foreground text-right">Estimated</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {futureInvoices.length === 0 ? (
+                                        <tr><td colSpan={2} className="text-center py-8 text-muted-foreground italic text-[10px] uppercase tracking-widest">No future billing found</td></tr>
+                                    ) : (
+                                        futureInvoices.slice(0, 5).map((inv: any) => (
+                                            <tr key={inv.id} className="border-b last:border-0 hover:bg-blue-50/50 transition-colors">
+                                                <td className="px-4 py-3">
+                                                    <div className="text-[10px] font-bold text-slate-900">{inv.invoice_number}</div>
+                                                    <div className="text-[8px] text-muted-foreground mt-0.5">
+                                                        {inv.date ? format(new Date(inv.date), "PPP") : "Schedule Pending"}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-right text-xs font-bold text-blue-600">
+                                                    {getCurrencySymbol(profile?.default_currency)}
+                                                    {formatAmount(getInvoiceTotal(inv.invoice_items, inv.discount_percentage))}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        {futureInvoices.length > 0 && (
+                            <div className="p-3 bg-blue-50 border-t flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-blue-700 uppercase tracking-widest">Projected Future Total</span>
+                                <span className="text-xs font-bold text-blue-700">
+                                    {getCurrencySymbol(profile?.default_currency)}
+                                    {formatAmount(futureAmount)}
+                                </span>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
+
+            {/* Detailed Monthly Report Table */}
+            <Card className="shadow-sm border-none bg-card/50 backdrop-blur-sm mt-8">
+                <CardHeader className="border-b bg-muted/30">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <CardTitle className="text-lg font-bold">Monthly Financial Report</CardTitle>
+                            <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-semibold">Detailed synchronized breakdown</p>
+                        </div>
+                        <IndianRupee className="h-5 w-5 text-muted-foreground opacity-50" />
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left border-collapse min-w-[800px]">
+                            <thead>
+                                <tr className="bg-muted/50 border-b">
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px]">Month</th>
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px] text-emerald-600">Revenue (Invoiced)</th>
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px] text-destructive">Costs (Spent)</th>
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px] text-blue-600">Net Profit</th>
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px] text-orange-600">Outstanding</th>
+                                    <th className="px-6 py-4 font-bold uppercase tracking-widest text-[10px] text-amber-600">Cash Flow (Savings)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {profitSavingsData.length > 0 ? (
+                                    profitSavingsData.slice().reverse().map((data, idx) => (
+                                        <tr key={idx} className="border-b hover:bg-muted/20 transition-colors">
+                                            <td className="px-6 py-4 font-semibold">{data.month}</td>
+                                            <td className="px-6 py-4 font-bold text-emerald-600">{getCurrencySymbol(profile?.default_currency)}{formatAmount(data.revenue)}</td>
+                                            <td className="px-6 py-4 font-bold text-destructive">{getCurrencySymbol(profile?.default_currency)}{formatAmount(data.costs)}</td>
+                                            <td className="px-6 py-4">
+                                                <div className={`inline-flex px-2 py-1 rounded text-xs font-bold ${data.profit >= 0 ? "bg-blue-100 text-blue-700" : "bg-destructive/10 text-destructive"}`}>
+                                                    {getCurrencySymbol(profile?.default_currency)}{formatAmount(data.profit)}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 font-bold text-orange-600">{getCurrencySymbol(profile?.default_currency)}{formatAmount(data.outstanding)}</td>
+                                            <td className="px-6 py-4 font-black text-amber-600">{getCurrencySymbol(profile?.default_currency)}{formatAmount(data.cashFlow)}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground italic">No financial data found for the selected range.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

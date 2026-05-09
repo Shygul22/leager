@@ -15,7 +15,7 @@ import { Plus, Trash2, Edit, X, Receipt, UserCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
-type BillItem = { id?: string; description: string; quantity: number; rate: number; gst: number };
+type BillItem = { id?: string; description: string; quantity: number; rate: number; gst: number; mrp?: number; discount?: number };
 type Bill = {
     id: string;
     bill_number: string;
@@ -27,10 +27,13 @@ type Bill = {
     notes: string | null;
     category: string | null;
     created_at: string;
+    discount_percentage?: number;
+    paid_amount?: number;
     bill_items?: BillItem[];
     suppliers?: { name: string };
     employees?: { name: string };
 };
+
 
 const getCurrencySymbol = (currency?: string | null) => {
     switch (currency) {
@@ -42,7 +45,7 @@ const getCurrencySymbol = (currency?: string | null) => {
     }
 };
 export default function Bills() {
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,14 +77,23 @@ export default function Bills() {
         due_date: "",
         notes: "",
         category: "Purchase",
-        items: [{ description: "", quantity: 1, rate: 0, gst: 0 }] as BillItem[],
+        discount_percentage: 0,
+        paid_amount: 0,
+        status: "pending",
+        items: [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] as BillItem[],
     });
 
+
     const { data: employees = [] } = useQuery({
-        queryKey: ["employees", user?.id],
+        queryKey: ["employees", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("employees").select("*").eq("user_id", user.id).order("name", { ascending: true });
+            let query = supabase.from("employees").select("*");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("name", { ascending: true });
             if (error) throw error;
             return data;
         },
@@ -89,10 +101,15 @@ export default function Bills() {
     });
 
     const { data: suppliers = [] } = useQuery({
-        queryKey: ["suppliers", user?.id],
+        queryKey: ["suppliers", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("suppliers").select("*").eq("user_id", user.id).order("name", { ascending: true });
+            let query = supabase.from("suppliers").select("*");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("name", { ascending: true });
             if (error) throw error;
             return data;
         },
@@ -100,14 +117,19 @@ export default function Bills() {
     });
 
     const { data: bills = [], isLoading } = useQuery({
-        queryKey: ["bills", user?.id],
+        queryKey: ["bills", user?.id, role],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
+            let query = supabase
                 .from("bills")
-                .select("*, suppliers(name), employees(name), bill_items(*)")
-                .eq("user_id", user.id)
-                .order("date", { ascending: false });
+                .select("*, suppliers(name), employees(name), bill_items(*)");
+            
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            
+            const { data, error } = await query.order("date", { ascending: false });
             if (error) throw error;
             return data as unknown as Bill[];
         },
@@ -135,13 +157,16 @@ export default function Bills() {
             const billPayload = {
                 bill_number: form.bill_number,
                 supplier_id: form.supplier_id,
-                employee_id: form.employee_id || null,
+                employee_id: (form.employee_id === "none" || !form.employee_id) ? null : form.employee_id,
                 date: form.date,
                 due_date: form.due_date || null,
                 notes: form.notes || null,
                 category: form.category || null,
-                user_id: user.id,
+                discount_percentage: form.discount_percentage || 0,
+                paid_amount: form.paid_amount || 0,
+                status: form.status || "pending",
             };
+
 
             let billId = editingId;
 
@@ -150,7 +175,7 @@ export default function Bills() {
                 if (error) throw error;
                 await supabase.from("bill_items").delete().eq("bill_id", editingId);
             } else {
-                const { data, error } = await supabase.from("bills").insert(billPayload).select().single();
+                const { data, error } = await supabase.from("bills").insert({ ...billPayload, user_id: user.id }).select().single();
                 if (error) throw error;
                 billId = data.id;
             }
@@ -160,7 +185,9 @@ export default function Bills() {
                 description: i.description,
                 quantity: i.quantity,
                 rate: i.rate,
-                gst: i.gst
+                gst: i.gst,
+                mrp: i.mrp || 0,
+                discount: i.discount || 0
             }));
 
             if (items.length > 0) {
@@ -185,7 +212,7 @@ export default function Bills() {
             if (status === "paid") {
                 const bill = bills.find(b => b.id === id);
                 if (bill && user) {
-                    const total = getTotal(bill.bill_items);
+                    const total = getTotal(bill.bill_items, bill.discount_percentage);
                     await supabase.from("transactions").insert({
                         user_id: user.id,
                         date: format(new Date(), "yyyy-MM-dd"),
@@ -216,11 +243,26 @@ export default function Bills() {
         },
     });
 
-    const addItem = () => setForm({ ...form, items: [...form.items, { description: "", quantity: 1, rate: 0, gst: 0 }] });
+    const addItem = () => setForm({ ...form, items: [...form.items, { description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] });
     const removeItem = (i: number) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
     const updateItem = (i: number, field: keyof BillItem, value: string | number) => {
         const items = [...form.items];
-        (items[i] as any)[field] = value;
+        const item = { ...items[i] } as any;
+        item[field] = value;
+
+        if (field === "mrp" || field === "discount") {
+            const mrp = field === "mrp" ? Number(value) : (item.mrp || 0);
+            const disc = field === "discount" ? Number(value) : (item.discount || 0);
+            item.rate = mrp * (1 - disc / 100);
+        } else if (field === "rate") {
+            const rate = Number(value);
+            const mrp = item.mrp || 0;
+            if (mrp > 0) {
+                item.discount = ((mrp - rate) / mrp) * 100;
+            }
+        }
+
+        items[i] = item;
         setForm({ ...form, items });
     };
 
@@ -234,7 +276,10 @@ export default function Bills() {
             due_date: "",
             notes: "",
             category: "Purchase",
-            items: [{ description: "", quantity: 1, rate: 0, gst: 0 }]
+            discount_percentage: 0,
+            paid_amount: 0,
+            status: "pending",
+            items: [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }]
         });
         setOpen(true);
     };
@@ -249,14 +294,25 @@ export default function Bills() {
             due_date: bill.due_date || "",
             notes: bill.notes || "",
             category: bill.category || "Purchase",
-            items: bill.bill_items && bill.bill_items.length > 0 ? bill.bill_items.map(i => ({ ...i })) : [{ description: "", quantity: 1, rate: 0, gst: 0 }],
+            discount_percentage: bill.discount_percentage || 0,
+            paid_amount: bill.paid_amount || 0,
+            status: bill.status || "pending",
+            items: bill.bill_items && bill.bill_items.length > 0 ? bill.bill_items.map(i => ({ ...i })) : [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }],
         });
         setOpen(true);
     };
 
+
     const getSubtotal = (items?: BillItem[]) => (items || []).reduce((s, i) => s + i.quantity * i.rate, 0);
-    const getGSTTotal = (items?: BillItem[]) => (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
-    const getTotal = (items?: BillItem[]) => getSubtotal(items) + getGSTTotal(items);
+    const getGSTTotal = (items?: BillItem[], discountPercentage?: number) => {
+        const totalGst = (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+        return totalGst * (1 - (discountPercentage || 0) / 100);
+    };
+    const getTotal = (items?: BillItem[], discountPercentage?: number) => {
+        const sub = getSubtotal(items);
+        const disc = sub * ((discountPercentage || 0) / 100);
+        return (sub - disc) + getGSTTotal(items, discountPercentage);
+    };
 
     return (
         <div className="space-y-6">
@@ -291,9 +347,12 @@ export default function Bills() {
                                 <TableHead>Date / Bill #</TableHead>
                                 <TableHead>Supplier</TableHead>
                                 <TableHead>Status</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                                <TableHead className="text-right">Paid</TableHead>
+                                <TableHead className="text-right">Balance</TableHead>
                                 <TableHead className="w-24 text-right">Actions</TableHead>
                             </TableRow>
+
                         </TableHeader>
                         <TableBody>
                             {filteredBills.length === 0 ? (
@@ -332,14 +391,25 @@ export default function Bills() {
                                                 </SelectContent>
                                             </Select>
                                         </TableCell>
-                                        <TableCell className="text-right font-bold">
+                                        <TableCell className="text-right font-medium">
                                             {getCurrencySymbol(profile?.default_currency)}
-                                            {formatAmount(getTotal(bill.bill_items))}
+                                            {formatAmount(getTotal(bill.bill_items, bill.discount_percentage))}
                                         </TableCell>
+                                        <TableCell className="text-right text-emerald-600 font-medium">
+                                            {getCurrencySymbol(profile?.default_currency)}
+                                            {(bill.paid_amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                        </TableCell>
+                                        <TableCell className="text-right text-destructive font-bold">
+                                            {getCurrencySymbol(profile?.default_currency)}
+                                            {(getTotal(bill.bill_items, bill.discount_percentage) - (bill.paid_amount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                        </TableCell>
+
                                         <TableCell className="text-right">
                                             <div className="flex justify-end gap-1">
                                                 <Button variant="ghost" size="icon" onClick={() => openEdit(bill)}><Edit className="h-4 w-4" /></Button>
-                                                <Button variant="ghost" size="icon" onClick={() => deleteBill.mutate(bill.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                                {(role === "admin" || role === "accounts_manager") && (
+                                                    <Button variant="ghost" size="icon" onClick={() => deleteBill.mutate(bill.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                     </TableRow>
@@ -400,7 +470,18 @@ export default function Bills() {
                                 <Label>Notes</Label>
                                 <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Internal notes..." className="h-20" />
                             </div>
+                            <div className="space-y-2 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                <Label className="text-emerald-900">Amount Already Paid ({getCurrencySymbol(profile?.default_currency)})</Label>
+                                <Input 
+                                    type="number" 
+                                    step="0.01" 
+                                    value={form.paid_amount} 
+                                    onChange={(e) => setForm({ ...form, paid_amount: parseFloat(e.target.value) || 0 })} 
+                                    className="bg-white"
+                                />
+                            </div>
                         </div>
+
 
                         <div className="md:col-span-2 space-y-4">
                             <Label className="text-lg font-semibold flex items-center"><Receipt className="mr-2 h-5 w-5" /> Line Items</Label>
@@ -411,18 +492,26 @@ export default function Bills() {
                                             <Label className="text-[10px] uppercase text-muted-foreground font-bold">Item Description</Label>
                                             <Input value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} placeholder="What did you buy?" className="bg-background" />
                                         </div>
-                                        <div className="grid grid-cols-3 gap-2 w-full md:w-auto">
-                                            <div className="space-y-1 w-16">
+                                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 w-full md:w-auto items-end">
+                                            <div className="space-y-1 w-14">
                                                 <Label className="text-[10px] uppercase text-muted-foreground font-bold text-center block">Qty</Label>
-                                                <Input type="number" value={item.quantity} onChange={(e) => updateItem(i, "quantity", Number(e.target.value))} className="text-center bg-background" />
-                                            </div>
-                                            <div className="space-y-1 w-24">
-                                                <Label className="text-[10px] uppercase text-muted-foreground font-bold text-right block">Rate</Label>
-                                                <Input type="number" value={item.rate} onChange={(e) => updateItem(i, "rate", Number(e.target.value))} className="text-right bg-background" />
+                                                <Input type="number" value={item.quantity} onChange={(e) => updateItem(i, "quantity", Number(e.target.value))} className="text-center bg-background p-1" />
                                             </div>
                                             <div className="space-y-1 w-20">
+                                                <Label className="text-[10px] uppercase text-muted-foreground font-bold text-right block">MRP</Label>
+                                                <Input type="number" step="0.01" value={item.mrp} onChange={(e) => updateItem(i, "mrp", Number(e.target.value))} className="text-right bg-background p-1" />
+                                            </div>
+                                            <div className="space-y-1 w-16">
+                                                <Label className="text-[10px] uppercase text-muted-foreground font-bold text-right block">Disc %</Label>
+                                                <Input type="number" step="0.1" value={item.discount} onChange={(e) => updateItem(i, "discount", Number(e.target.value))} className="text-right bg-background p-1" />
+                                            </div>
+                                            <div className="space-y-1 w-20">
+                                                <Label className="text-[10px] uppercase text-muted-foreground font-bold text-right block">Rate</Label>
+                                                <Input type="number" step="0.01" value={item.rate} onChange={(e) => updateItem(i, "rate", Number(e.target.value))} className="text-right bg-background p-1 font-semibold" />
+                                            </div>
+                                            <div className="space-y-1 w-16">
                                                 <Label className="text-[10px] uppercase text-muted-foreground font-bold text-right block">GST %</Label>
-                                                <Input type="number" value={item.gst} onChange={(e) => updateItem(i, "gst", Number(e.target.value))} className="text-right bg-background" />
+                                                <Input type="number" value={item.gst} onChange={(e) => updateItem(i, "gst", Number(e.target.value))} className="text-right bg-background p-1" />
                                             </div>
                                         </div>
                                         {form.items.length > 1 && (
@@ -436,19 +525,35 @@ export default function Bills() {
                             </div>
 
                             <div className="bg-secondary/10 p-4 rounded-lg border border-border/50 flex flex-col items-end space-y-2 mt-6">
-                                <div className="flex justify-between w-48 text-sm">
+                                <div className="flex justify-between w-full text-sm">
                                     <span className="text-muted-foreground">Subtotal:</span>
                                     <span>{getCurrencySymbol(profile?.default_currency)}{getSubtotal(form.items).toFixed(2)}</span>
                                 </div>
-                                <div className="flex justify-between w-48 text-sm border-b pb-2">
-                                    <span className="text-muted-foreground">GST:</span>
-                                    <span>{getCurrencySymbol(profile?.default_currency)}{getGSTTotal(form.items).toFixed(2)}</span>
+                                <div className="flex items-center justify-between w-full text-sm text-red-500 font-medium">
+                                    <div className="flex items-center gap-2">
+                                        <span>Discount (%)</span>
+                                        <Input type="number" className="h-7 w-16 text-xs bg-white text-black" value={form.discount_percentage} onChange={(e) => setForm({ ...form, discount_percentage: parseFloat(e.target.value) || 0 })} />
+                                    </div>
+                                    <span>-{getCurrencySymbol(profile?.default_currency)}{(getSubtotal(form.items) * (form.discount_percentage / 100)).toFixed(2)}</span>
                                 </div>
-                                <div className="flex justify-between w-48 text-xl font-bold pt-2">
-                                    <span>Total:</span>
-                                    <span className="text-primary">{getCurrencySymbol(profile?.default_currency)}{getTotal(form.items).toFixed(2)}</span>
+                                <div className="flex justify-between w-full text-sm border-b pb-2">
+                                    <span className="text-muted-foreground">GST Total:</span>
+                                    <span>{getCurrencySymbol(profile?.default_currency)}{getGSTTotal(form.items, form.discount_percentage).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between w-full text-xl font-bold pt-2">
+                                    <span>Total Amount:</span>
+                                    <span className="text-primary">{getCurrencySymbol(profile?.default_currency)}{getTotal(form.items, form.discount_percentage).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between w-full text-sm text-emerald-600 font-medium pt-1">
+                                    <span>Paid:</span>
+                                    <span>{getCurrencySymbol(profile?.default_currency)}{form.paid_amount.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between w-full text-lg font-bold text-destructive pt-1 border-t border-dashed mt-1">
+                                    <span>Balance Due:</span>
+                                    <span>{getCurrencySymbol(profile?.default_currency)}{(getTotal(form.items, form.discount_percentage) - form.paid_amount).toFixed(2)}</span>
                                 </div>
                             </div>
+
                         </div>
                     </div>
 
