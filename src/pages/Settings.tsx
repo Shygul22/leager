@@ -34,8 +34,16 @@ export default function Settings() {
         default_currency: "INR",
         default_items: [] as any[],
         transaction_categories: [] as string[],
+        payment_details: "",
+        email: "",
+        phone: "",
+        pan: "",
+        cin: "",
+        website: "",
     });
     const [newCategory, setNewCategory] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [updatingPassword, setUpdatingPassword] = useState(false);
 
     useEffect(() => {
         async function getProfile() {
@@ -82,6 +90,12 @@ export default function Settings() {
                         default_currency: data.default_currency || "INR",
                         default_items: parsedItems,
                         transaction_categories: parsedCats,
+                        payment_details: data.payment_details || "Account Holder: DREAM LIFTS\nBank Name: BANK OF INDIA\nAccount Number: 806320110000322\nBranch Name: PERUNGALATHUR\nIFSC Code: BKID0008063",
+                        email: data.email || user?.email || "",
+                        phone: data.phone || "",
+                        pan: data.pan || "",
+                        cin: data.cin || "",
+                        website: data.website || "",
                     });
                 }
             } catch (error: any) {
@@ -144,6 +158,12 @@ export default function Settings() {
                 default_currency: profile.default_currency,
                 default_items: profile.default_items, // save as JSON array
                 transaction_categories: profile.transaction_categories, // save as JSON array
+                payment_details: profile.payment_details,
+                email: profile.email,
+                phone: profile.phone,
+                pan: profile.pan,
+                cin: profile.cin,
+                website: profile.website,
                 updated_at: new Date().toISOString(),
             });
 
@@ -155,6 +175,24 @@ export default function Settings() {
             setLoading(false);
         }
     }
+
+    const handleUpdatePassword = async () => {
+        if (!newPassword || newPassword.length < 6) {
+            toast.error("Password must be at least 6 characters.");
+            return;
+        }
+        setUpdatingPassword(true);
+        try {
+            const { error } = await supabase.auth.updateUser({ password: newPassword });
+            if (error) throw error;
+            toast.success("Password updated successfully!");
+            setNewPassword("");
+        } catch (err: any) {
+            toast.error(err.message);
+        } finally {
+            setUpdatingPassword(false);
+        }
+    };
 
     const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -332,14 +370,45 @@ export default function Settings() {
                                     placeholder="e.g. Acme Corp"
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="gstin">GSTIN (Optional)</Label>
-                                <Input
-                                    id="gstin"
-                                    value={profile.gstin}
-                                    onChange={(e) => setProfile({ ...profile, gstin: e.target.value })}
-                                    placeholder="e.g. 27AAAAA0000A1Z5"
-                                />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="gstin">GSTIN (Optional)</Label>
+                                    <Input
+                                        id="gstin"
+                                        value={profile.gstin}
+                                        onChange={(e) => setProfile({ ...profile, gstin: e.target.value })}
+                                        placeholder="e.g. 27AAAAA0000A1Z5"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="pan">PAN</Label>
+                                    <Input
+                                        id="pan"
+                                        value={profile.pan}
+                                        onChange={(e) => setProfile({ ...profile, pan: e.target.value })}
+                                        placeholder="e.g. ABCDE1234F"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="cin">CIN</Label>
+                                    <Input
+                                        id="cin"
+                                        value={profile.cin}
+                                        onChange={(e) => setProfile({ ...profile, cin: e.target.value })}
+                                        placeholder="e.g. L01234MH2026PLC123456"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="website">Website</Label>
+                                    <Input
+                                        id="website"
+                                        value={profile.website}
+                                        onChange={(e) => setProfile({ ...profile, website: e.target.value })}
+                                        placeholder="e.g. www.acmecorp.com"
+                                    />
+                                </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
@@ -362,6 +431,28 @@ export default function Settings() {
                                 </div>
                             </div>
 
+                            <div className="space-y-2">
+                                <Label htmlFor="profile_email">Email Address</Label>
+                                <Input
+                                    id="profile_email"
+                                    type="email"
+                                    value={profile.email}
+                                    onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                                    placeholder="e.g. info@company.com"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="profile_phone">Mobile Number</Label>
+                                <Input
+                                    id="profile_phone"
+                                    type="text"
+                                    value={profile.phone}
+                                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                                    placeholder="e.g. +91 98765 43210"
+                                />
+                            </div>
+
                             <div className="space-y-2 pt-4 border-t">
                                 <Label htmlFor="address">Business Address</Label>
                                 <Textarea
@@ -370,6 +461,16 @@ export default function Settings() {
                                     onChange={(e) => setProfile({ ...profile, address: e.target.value })}
                                     placeholder="Full address for invoices..."
                                     className="min-h-[100px]"
+                                />
+                            </div>
+                            <div className="space-y-2 pt-4 border-t">
+                                <Label htmlFor="payment_details">Bank / Payment Details (Displays on Invoice)</Label>
+                                <Textarea
+                                    id="payment_details"
+                                    value={profile.payment_details}
+                                    onChange={(e) => setProfile({ ...profile, payment_details: e.target.value })}
+                                    placeholder="Account Holder Name: DREAM LIFTS&#10;Bank Name: BANK OF INDIA&#10;Account Number: 806320110000322&#10;Branch Name: PERUNGALATHUR&#10;IFSC Code: BKID0008063"
+                                    className="min-h-[120px]"
                                 />
                             </div>
                             <Button onClick={updateProfile} disabled={loading} className="w-full">
@@ -566,11 +667,29 @@ export default function Settings() {
 
             <Card className="border-destructive/20 bg-destructive/5">
                 <CardHeader>
-                    <CardTitle className="text-destructive">Account</CardTitle>
+                    <CardTitle className="text-destructive">Security & Account</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4">Email: {user?.email}</p>
-                    <p className="text-xs text-muted-foreground">User ID: {user?.id}</p>
+                <CardContent className="space-y-6">
+                    <div>
+                        <p className="text-sm text-muted-foreground mb-4">Email: {user?.email}</p>
+                        <p className="text-xs text-muted-foreground">User ID: {user?.id}</p>
+                    </div>
+                    <div className="space-y-4 pt-4 border-t border-destructive/10">
+                        <h4 className="text-sm font-semibold text-destructive">Change Password</h4>
+                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center max-w-sm">
+                            <Input 
+                                type="password" 
+                                placeholder="New password (min 6 characters)" 
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="border-destructive/20 focus-visible:ring-destructive/30"
+                            />
+                            <Button variant="destructive" onClick={handleUpdatePassword} disabled={updatingPassword}>
+                                {updatingPassword ? "Updating..." : "Update"}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">You will be logged out of other devices after changing your password.</p>
+                    </div>
                 </CardContent>
             </Card>
         </div>

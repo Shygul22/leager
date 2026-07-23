@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, isToday, isThisWeek, parseISO } from "date-fns";
 import { Plus, Pencil, Trash2, Download, UserCircle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import * as XLSX from "xlsx";
@@ -50,6 +51,7 @@ export default function Transactions() {
   const [open, setOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
+  const [selectedTxs, setSelectedTxs] = useState<string[]>([]);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
 
@@ -179,6 +181,25 @@ export default function Transactions() {
     },
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("transactions").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      setSelectedTxs([]);
+      toast.success("Transactions deleted successfully");
+    },
+    onError: (e) => toast.error("Failed to delete transactions: " + e.message)
+  });
+
+  const handleBulkDelete = () => {
+    if (window.confirm(`Are you sure you want to delete ${selectedTxs.length} selected transactions?`)) {
+      bulkDeleteMutation.mutate(selectedTxs);
+    }
+  };
+
   const openAdd = () => {
     setEditing(null);
     setForm({ description: "", amount: "", type: "income", category: activeCategories[0] || "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
@@ -239,7 +260,8 @@ export default function Transactions() {
     doc.text(`Generated on: ${format(new Date(), "PPpp")}`, 14, 22);
 
     const tableColumn = ["Date", "Description", "Category", "Type", "Amount"];
-    const symbol = getCurrencySymbol(profile?.default_currency);
+    const rawSymbol = getCurrencySymbol(profile?.default_currency);
+    const symbol = rawSymbol === "₹" ? "Rs. " : rawSymbol;
     const tableRows = filtered.map(t => [
       format(new Date(t.date), "yyyy-MM-dd"),
       t.description,
@@ -277,7 +299,12 @@ export default function Transactions() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {selectedTxs.length > 0 && (
+            <Button variant="destructive" onClick={handleBulkDelete} className="w-full sm:w-auto">
+              <Trash2 className="mr-2 h-4 w-4" /> Delete ({selectedTxs.length})
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="flex-1 sm:flex-none"><Download className="mr-2 h-4 w-4" /> Export</Button>
@@ -304,6 +331,14 @@ export default function Transactions() {
           <Table className="min-w-[700px] md:min-w-full">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox 
+                    checked={selectedTxs.length === filtered.length && filtered.length > 0} 
+                    onCheckedChange={(checked) => 
+                      setSelectedTxs(checked ? filtered.map(t => t.id) : [])
+                    } 
+                  />
+                </TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Category / Attribution</TableHead>
@@ -314,9 +349,19 @@ export default function Transactions() {
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No transactions found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No transactions found.</TableCell></TableRow>
               ) : filtered.map((t) => (
                 <TableRow key={t.id}>
+                  <TableCell>
+                    <Checkbox 
+                      checked={selectedTxs.includes(t.id)} 
+                      onCheckedChange={() => 
+                        setSelectedTxs(prev => 
+                          prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]
+                        )
+                      } 
+                    />
+                  </TableCell>
                   <TableCell>{format(new Date(t.date), "MMM d, yyyy")}</TableCell>
                   <TableCell>{t.description}</TableCell>
                    <TableCell>

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Mail, Phone, MapPin, Edit, Globe, History, Receipt, CheckCircle2, Clock, Search, Eye, TrendingUp, FileText, Loader2 } from "lucide-react";
+import { Plus, Trash2, Mail, Phone, MapPin, Edit, Globe, History, Receipt, CheckCircle2, Clock, Search, Eye, TrendingUp, FileText, Loader2, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,6 +29,7 @@ type Client = {
     total_spent?: number;
     paid_amount?: number;
     balance_due?: number;
+    total_quotations?: number;
 };
 
 export default function Clients() {
@@ -83,6 +84,22 @@ export default function Clients() {
         enabled: !!user && !!role,
     });
 
+    const { data: quotations = [] } = useQuery({
+        queryKey: ["quotations", user?.id, role],
+        queryFn: async () => {
+            if (!user) return [];
+            let query = supabase.from("quotations").select("*, quotation_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!user && !!role,
+    });
+
     const { data: clients = [], isLoading } = useQuery({
         queryKey: ["clients", user?.id, role],
         queryFn: async () => {
@@ -98,40 +115,137 @@ export default function Clients() {
                 query = query.eq("user_id", user.id);
             }
             
-            const { data: clientsData, error: clientsError } = await query.order("name", { ascending: true });
+            const { data: clientsData, error: clientsError } = await query;
 
             if (clientsError) throw clientsError;
 
-            // 2. Map spend to clients
-            return (clientsData as Client[]).map(client => {
+            // Sort naturally by client_number, fallback to name, empty/null IDs go to the end
+            const sortedClients = (clientsData as Client[]).sort((a, b) => {
+                const idA = a.client_number?.trim() || "";
+                const idB = b.client_number?.trim() || "";
+                if (!idA && !idB) return a.name.localeCompare(b.name);
+                if (!idA) return 1;
+                if (!idB) return -1;
+                return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            // 2. Map spend and quotations to clients
+            return sortedClients.map(client => {
                 const clientInvoices = (invoices || []).filter(inv => 
-                    inv.client_id === client.id || inv.client_name === client.name
+                    (inv.client_id === client.id || 
+                    (inv.client_name?.trim().toLowerCase() === client.name?.trim().toLowerCase())) &&
+                    inv.status !== "draft" && inv.status !== "cancelled"
                 );
                 
                 const totalSpent = clientInvoices.reduce((sum, inv) => {
-                    const invTotal = (inv.invoice_items as any[] || []).reduce((s, i) => 
-                        s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
+                    const subtotal = (inv.invoice_items as any[] || []).reduce((s, i) => 
+                        s + (i.quantity * i.rate), 0
                     );
                     const discountPercentage = inv.discount_percentage || 0;
-                    const discountAmount = invTotal * (discountPercentage / 100);
-                    const totalWithDiscount = invTotal - discountAmount;
+                    const discountAmount = subtotal * (discountPercentage / 100);
+                    const totalWithDiscount = subtotal - discountAmount;
                     return sum + totalWithDiscount;
                 }, 0);
 
-                const paidAmount = clientInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => {
-                    const invTotal = (inv.invoice_items as any[] || []).reduce((s, i) => 
+                const clientTxs = (transactions || []).filter(t => 
+                    t.client_id === client.id || 
+                    (t.description && t.description.toLowerCase().includes(client.name.toLowerCase()))
+                );
+
+                // Calculate paid amount by checking each invoice and its corresponding transactions
+                const invoiceTxPaidAmount = clientInvoices.reduce((sum, inv) => {
+                    const invTxSum = clientTxs
+                        .filter(t => t.type === "income" && 
+                            t.description && 
+                            t.description.includes(inv.invoice_number) &&
+                            !t.description.startsWith("Invoice ")
+                        )
+                        .reduce((s, t) => s + (t.amount || 0), 0);
+                    return sum + Math.max(inv.paid_amount || 0, invTxSum);
+                }, 0);
+                
+                // Plus any general payments not linked to a specific invoice
+                const generalPayments = clientTxs
+                    .filter(t => t.type === "income" && 
+                        !t.description?.startsWith("Invoice ") && 
+                        !clientInvoices.some(inv => t.description && t.description.includes(inv.invoice_number))
+                    )
+                    .reduce((s, t) => s + (t.amount || 0), 0);
+                
+                const paidAmount = invoiceTxPaidAmount + generalPayments;
+
+                // Invoice total WITH GST (to deduct from quotation balance)
+                const totalSpentWithGST = clientInvoices.reduce((sum, inv) => {
+                    const subtotal = (inv.invoice_items as any[] || []).reduce((s, i) =>
                         s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
                     );
                     const discountPercentage = inv.discount_percentage || 0;
-                    const discountAmount = invTotal * (discountPercentage / 100);
-                    const totalWithDiscount = invTotal - discountAmount;
+                    const discountAmount = subtotal * (discountPercentage / 100);
+                    return sum + (subtotal - discountAmount);
+                }, 0);
+
+                // Pending = all active quotations (sent, accepted, invoiced — excludes only draft/rejected)
+                const clientQuotations = (quotations || []).filter(q => 
+                    (q.client_id === client.id || 
+                    (q.client_name?.trim().toLowerCase() === client.name?.trim().toLowerCase())) &&
+                    q.status !== "draft" && q.status !== "rejected"
+                );
+
+                const totalQuotations = clientQuotations.reduce((sum, q) => {
+                    const subtotal = (q.quotation_items as any[] || []).reduce((s, i) => 
+                        s + (i.quantity * i.rate), 0
+                    );
+                    const discountPercentage = q.discount_percentage || 0;
+                    const discountAmount = subtotal * (discountPercentage / 100);
+                    const totalWithDiscount = subtotal - discountAmount;
                     return sum + totalWithDiscount;
                 }, 0);
 
-                return { ...client, total_spent: totalSpent, paid_amount: paidAmount, balance_due: totalSpent - paidAmount };
+                // All quotations excluding rejected/draft
+                const allClientQuotations = (quotations || []).filter(q => 
+                    (q.client_id === client.id || 
+                    (q.client_name?.trim().toLowerCase() === client.name?.trim().toLowerCase())) &&
+                    q.status !== "rejected" && q.status !== "draft"
+                );
+
+                const totalAllQuotationsVal = allClientQuotations.reduce((sum, q) => {
+                    const subtotal = (q.quotation_items as any[] || []).reduce((s, i) => 
+                        s + (i.quantity * i.rate), 0
+                    );
+                    const discountPercentage = q.discount_percentage || 0;
+                    const discountAmount = subtotal * (discountPercentage / 100);
+                    const totalWithDiscount = subtotal - discountAmount;
+                    return sum + totalWithDiscount;
+                }, 0);
+
+                // GST-inclusive total for all active quotations
+                const totalAllQuotationsWithGST = allClientQuotations.reduce((sum, q) => {
+                    const subtotal = (q.quotation_items as any[] || []).reduce((s, i) =>
+                        s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
+                    );
+                    const discountPercentage = q.discount_percentage || 0;
+                    const discountAmount = subtotal * (discountPercentage / 100);
+                    return sum + (subtotal - discountAmount);
+                }, 0);
+
+                // Remaining Balance = Quotations - Invoiced
+                const remaining_balance_with_gst = Math.max(0, totalAllQuotationsWithGST - totalSpentWithGST);
+                const remaining_balance_excl_gst = Math.max(0, totalAllQuotationsVal - totalSpent);
+
+                return { 
+                    ...client, 
+                    total_spent: totalSpent, 
+                    paid_amount: paidAmount, 
+                    balance_due: totalQuotations, // base excl. GST pending quotations
+                    total_quotations: totalAllQuotationsVal, // total quotations represents all active estimates (excluding GST)
+                    total_quotations_with_gst: totalAllQuotationsWithGST, // GST-inclusive total for display
+                    total_spent_with_gst: totalSpentWithGST, // invoiced with GST
+                    remaining_balance_with_gst, // invoiced (incl. tax) minus payments received (from transactions)
+                    remaining_balance_excl_gst // invoiced (excl. GST) minus payments received (excl. GST)
+                };
             });
         },
-        enabled: !!user && !!role && !!invoices,
+        enabled: !!user && !!role && !!invoices && !!quotations && !!transactions,
     });
 
     const upsertClient = useMutation({
@@ -150,8 +264,99 @@ export default function Clients() {
             };
 
             if (editingId) {
+                // Fetch original client details first
+                const { data: originalClient } = await supabase
+                    .from("clients")
+                    .select("*")
+                    .eq("id", editingId)
+                    .single();
+
+                const origNum = originalClient?.client_number;
+                const origName = originalClient?.name;
+
                 const { error } = await supabase.from("clients").update(payload).eq("id", editingId);
                 if (error) throw error;
+
+                // Sync all records matching this Client ID (client_number) if set
+                const targetClientNum = payload.client_number || origNum;
+                if (targetClientNum) {
+                    // Sync other client address book entries with the same ID
+                    await supabase.from("clients").update({
+                        name: payload.name,
+                        email: payload.email,
+                        phone: payload.phone,
+                        address: payload.address,
+                        gstin: payload.gstin,
+                        msme_number: payload.msme_number,
+                        currency: payload.currency
+                    }).eq("client_number", targetClientNum);
+
+                    // Sync all invoices with the same client ID
+                    await supabase.from("invoices").update({
+                        client_name: payload.name,
+                        client_email: payload.email,
+                        client_phone: payload.phone,
+                        client_address: payload.address,
+                        client_gstin: payload.gstin,
+                        client_msme_number: payload.msme_number,
+                        currency: payload.currency
+                    }).eq("client_num", targetClientNum);
+
+                    // Sync all quotations with the same client ID
+                    await supabase.from("quotations").update({
+                        client_name: payload.name,
+                        client_email: payload.email,
+                        client_phone: payload.phone,
+                        client_address: payload.address,
+                        client_gstin: payload.gstin,
+                        client_msme_number: payload.msme_number,
+                        currency: payload.currency
+                    }).eq("client_num", targetClientNum);
+                }
+
+                // Additional fallback: Cascade changes to existing invoices using client_id
+                await supabase.from("invoices").update({
+                    client_name: payload.name,
+                    client_email: payload.email,
+                    client_phone: payload.phone,
+                    client_address: payload.address,
+                    client_gstin: payload.gstin,
+                    client_msme_number: payload.msme_number,
+                    client_num: payload.client_number,
+                    currency: payload.currency
+                }).eq("client_id", editingId);
+
+                // Additional fallback: Cascade changes to existing quotations using client_id
+                await supabase.from("quotations").update({
+                    client_name: payload.name,
+                    client_email: payload.email,
+                    client_phone: payload.phone,
+                    client_address: payload.address,
+                    client_gstin: payload.gstin,
+                    client_msme_number: payload.msme_number,
+                    client_num: payload.client_number,
+                    currency: payload.currency
+                }).eq("client_id", editingId);
+
+                // Sync transaction descriptions if name changed
+                if (origName && payload.name !== origName) {
+                    const { data: txs } = await supabase
+                        .from("transactions")
+                        .select("*")
+                        .eq("client_id", editingId);
+                    
+                    if (txs && txs.length > 0) {
+                        for (const tx of txs) {
+                            if (tx.description && tx.description.includes(origName)) {
+                                const newDesc = tx.description.replace(origName, payload.name);
+                                await supabase
+                                    .from("transactions")
+                                    .update({ description: newDesc })
+                                    .eq("id", tx.id);
+                            }
+                        }
+                    }
+                }
             } else {
                 const { error } = await supabase.from("clients").insert({ ...payload, user_id: user.id });
                 if (error) throw error;
@@ -160,9 +365,12 @@ export default function Clients() {
 
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["clients"] });
+            queryClient.invalidateQueries({ queryKey: ["invoices"] });
+            queryClient.invalidateQueries({ queryKey: ["quotations"] });
+            queryClient.invalidateQueries({ queryKey: ["transactions"] });
             setOpen(false);
             setEditingId(null);
-            toast.success(editingId ? "Client updated!" : "Client added successfully!");
+            toast.success(editingId ? "Client updated and synced!" : "Client added successfully!");
         },
         onError: (e) => toast.error(e.message),
     });
@@ -233,8 +441,11 @@ export default function Clients() {
                                 <TableHead>Location</TableHead>
                                 <TableHead>Currency</TableHead>
                                 <TableHead>Client No. / Tax IDs</TableHead>
-                                <TableHead className="text-right">Total Invoiced</TableHead>
-                                <TableHead className="text-right">Balance Due</TableHead>
+                                <TableHead className="text-right">Total Invoiced <span className="text-[9px] text-muted-foreground font-normal">(excl. GST)</span></TableHead>
+                                <TableHead className="text-right">Total Invoiced <span className="text-[9px] text-muted-foreground font-normal">(incl. Tax)</span></TableHead>
+                                <TableHead className="text-right">Total Quotations <span className="text-[9px] text-muted-foreground font-normal">(incl. Tax)</span></TableHead>
+                                <TableHead className="text-right">Remaining Balance <span className="text-[9px] text-muted-foreground font-normal">(excl. GST)</span></TableHead>
+                                <TableHead className="text-right">Remaining Balance <span className="text-[9px] text-muted-foreground font-normal">(incl. Tax)</span></TableHead>
                                 <TableHead className="w-32 text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -249,7 +460,7 @@ export default function Clients() {
                                 if (filteredClients.length === 0 && clients.length > 0) {
                                     return (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
+                                            <TableCell colSpan={10} className="text-center text-muted-foreground py-12">
                                                 No clients found matching "{search}"
                                             </TableCell>
                                         </TableRow>
@@ -259,7 +470,7 @@ export default function Clients() {
                                 if (clients.length === 0) {
                                     return (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
+                                            <TableCell colSpan={10} className="text-center text-muted-foreground py-12">
                                                 {isLoading ? "Loading clients..." : "No clients found. Click 'Add Client' to build your CRM."}
                                             </TableCell>
                                         </TableRow>
@@ -309,12 +520,30 @@ export default function Clients() {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="font-bold text-slate-900">
-                                                {client.currency || "INR"} {client.total_spent?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                                {client.currency || "INR"} {client.total_spent?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <div className={`font-bold ${client.balance_due && client.balance_due > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                                {client.currency || "INR"} {client.balance_due?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                            <div className="font-bold text-slate-800">
+                                                {client.currency || "INR"} {(client as any).total_spent_with_gst?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className="font-bold text-violet-600">
+                                                {client.currency || "INR"} {(client as any).total_quotations_with_gst?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className={`font-bold ${ (client as any).remaining_balance_excl_gst > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                                {client.currency || "INR"} {(client as any).remaining_balance_excl_gst?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className={`font-bold text-lg ${ (client as any).remaining_balance_with_gst > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                                {client.currency || "INR"} {(client as any).remaining_balance_with_gst?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground">
+                                                {(client as any).remaining_balance_with_gst > 0 ? "⚠ Balance Pending" : "✓ Settled"}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">
@@ -349,20 +578,79 @@ export default function Clients() {
             {/* ── Admin: Client Dashboard Preview ── */}
             <Dialog open={!!previewClient} onOpenChange={(o) => !o && setPreviewClient(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-                    {previewClient && (() => {
-                        const cInvoices = invoices.filter(inv => inv.client_id === previewClient.id || inv.client_name === previewClient.name);
-                        const cProjects = []; // projects fetched via ClientPortal; here we show invoices
-                        const fmt = (n: number) => n.toLocaleString("en-IN", { style: "currency", currency: previewClient.currency || "INR", minimumFractionDigits: 2 });
+                     {previewClient && (() => {
+                        // Exclude draft/cancelled invoices from all totals (consistent with CRM table)
+                        const cInvoices = invoices.filter(inv => 
+                            (inv.client_id === previewClient.id || 
+                            (inv.client_name?.trim().toLowerCase() === previewClient.name?.trim().toLowerCase())) &&
+                            inv.status !== "draft" && inv.status !== "cancelled"
+                        );
+                        const cAllInvoices = invoices.filter(inv => 
+                            inv.client_id === previewClient.id || 
+                            (inv.client_name?.trim().toLowerCase() === previewClient.name?.trim().toLowerCase())
+                        );
+                        const cQuotations = quotations.filter(q => 
+                            (q.client_id === previewClient.id || 
+                            (q.client_name?.trim().toLowerCase() === previewClient.name?.trim().toLowerCase())) &&
+                            q.status !== "rejected" && q.status !== "draft"
+                        );
+                        // Pending = sent, accepted, invoiced — excludes only draft/rejected
+                        const cPendingQuotations = quotations.filter(q => 
+                            (q.client_id === previewClient.id || 
+                            (q.client_name?.trim().toLowerCase() === previewClient.name?.trim().toLowerCase())) &&
+                            q.status !== "draft" && q.status !== "rejected"
+                        );
+                        const fmt = (n: number) => n.toLocaleString("en-IN", { style: "currency", currency: previewClient.currency || "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        // Base-only total (no GST) to stay consistent with CRM table
                         const totalValue = cInvoices.reduce((s, inv) => {
+                            const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate, 0);
+                            return s + base * (1 - (inv.discount_percentage || 0) / 100);
+                        }, 0);
+
+                        const clientTxs = (transactions || []).filter(t => 
+                            t.client_id === previewClient.id || 
+                            (t.description && t.description.toLowerCase().includes(previewClient.name.toLowerCase()))
+                        );
+
+                        // Calculate paid amount by checking each invoice and its corresponding transactions
+                        const invoiceTxPaidAmount = cInvoices.reduce((sum, inv) => {
+                            const invTxSum = clientTxs
+                                .filter(t => t.type === "income" && 
+                                    t.description && 
+                                    t.description.includes(inv.invoice_number) &&
+                                    !t.description.startsWith("Invoice ")
+                                )
+                                .reduce((s, t) => s + (t.amount || 0), 0);
+                            return sum + Math.max(inv.paid_amount || 0, invTxSum);
+                        }, 0);
+                        
+                        // Plus any general payments not linked to a specific invoice
+                        const generalPayments = clientTxs
+                            .filter(t => t.type === "income" && 
+                                !t.description?.startsWith("Invoice ") && 
+                                !cInvoices.some(inv => t.description && t.description.includes(inv.invoice_number))
+                            )
+                            .reduce((s, t) => s + (t.amount || 0), 0);
+
+                        const totalPaid = invoiceTxPaidAmount + generalPayments;
+                        // Total Invoiced WITH GST
+                        const totalInvoicedWithGST = cInvoices.reduce((s, inv) => {
                             const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
                             return s + base * (1 - (inv.discount_percentage || 0) / 100);
                         }, 0);
-                        const totalPaid = cInvoices.filter(i => i.status === "paid").reduce((s, inv) => {
-                            const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
-                            return s + base * (1 - (inv.discount_percentage || 0) / 100);
+                        // Total Quotations = all non-rejected/draft (base only, excl. GST)
+                        const totalQuoteValue = cQuotations.reduce((s, q) => {
+                            const base = (q.quotation_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate, 0);
+                            return s + base * (1 - (q.discount_percentage || 0) / 100);
                         }, 0);
-                        const balanceDue = totalValue - totalPaid;
-                        const pending = cInvoices.filter(i => i.status !== "paid" && i.status !== "draft");
+                        // Quotations incl. GST
+                        const totalQuoteWithGST = cQuotations.reduce((s, q) => {
+                            const base = (q.quotation_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                            return s + base * (1 - (q.discount_percentage || 0) / 100);
+                        }, 0);
+                        // Remaining Balance = Quotations (incl. Tax) - Invoiced (incl. Tax) - Extra Payments
+                        const remainingBalanceWithGST = Math.max(0, totalQuoteWithGST - totalInvoicedWithGST - generalPayments);
+                        const pending = cAllInvoices.filter(i => i.status !== "paid" && i.status !== "draft");
 
                         return (
                             <div className="min-h-[400px]">
@@ -374,27 +662,39 @@ export default function Clients() {
                                             <h2 className="text-xl font-extrabold text-white">{previewClient.name}</h2>
                                             <p className="text-blue-200 text-xs mt-0.5">{previewClient.client_number} {previewClient.email && `· ${previewClient.email}`}</p>
                                         </div>
-                                        <div className="bg-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-bold uppercase tracking-widest">Dashboard Preview</div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="bg-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-bold uppercase tracking-widest print:hidden">Dashboard Preview</div>
+                                            <Button variant="outline" size="sm" onClick={() => window.print()} className="bg-white/10 text-white hover:bg-white/20 border-white/20 print:hidden">
+                                                <Printer className="h-4 w-4 mr-1.5" /> Print
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
 
                                 <div className="p-6 space-y-6">
                                     {/* Stats */}
-                                    <div className="grid grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                         <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Total Value</p>
+                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Total Invoiced</p>
                                             <p className="text-xl font-extrabold text-gray-900">{fmt(totalValue)}</p>
-                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.length} invoice{cInvoices.length !== 1 ? 's' : ''}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.length} invoice{cInvoices.length !== 1 ? 's' : ''} · excl. GST</p>
                                         </div>
-                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Amount Paid</p>
-                                            <p className="text-xl font-extrabold text-emerald-600">{fmt(totalPaid)}</p>
-                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.filter(i => i.status === 'paid').length} paid</p>
+                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm border-l-4 border-l-blue-400">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-blue-500 mb-2">Invoiced (incl. Tax)</p>
+                                            <p className="text-xl font-extrabold text-blue-700">{fmt(totalInvoicedWithGST)}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{cInvoices.length} invoice{cInvoices.length !== 1 ? 's' : ''} · +GST deducted</p>
                                         </div>
-                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Balance Due</p>
-                                            <p className={`text-xl font-extrabold ${balanceDue > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{fmt(balanceDue)}</p>
-                                            <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending</p>
+                                        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm border-l-4 border-l-violet-400">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-violet-500 mb-2">Quotations (incl. Tax)</p>
+                                            <p className="text-xl font-extrabold text-violet-600">{fmt(totalQuoteWithGST)}</p>
+                                            <p className="text-xs text-gray-400 mt-0.5">{cQuotations.length} quotation{cQuotations.length !== 1 ? 's' : ''} · +GST</p>
+                                        </div>
+                                        <div className={`rounded-2xl border p-4 shadow-sm border-l-4 ${ remainingBalanceWithGST > 0 ? 'bg-rose-50 border-rose-300 border-l-rose-500' : 'bg-emerald-50 border-emerald-200 border-l-emerald-500'}`}>
+                                            <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${ remainingBalanceWithGST > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>Remaining Balance</p>
+                                            <p className={`text-xl font-extrabold ${ remainingBalanceWithGST > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(remainingBalanceWithGST)}</p>
+                                            <p className={`text-xs mt-0.5 ${ remainingBalanceWithGST > 0 ? 'text-rose-400' : 'text-emerald-500'}`}>
+                                                {remainingBalanceWithGST > 0 ? '⚠ Quotations − Invoiced' : '✓ Fully invoiced'}
+                                            </p>
                                         </div>
                                     </div>
 
@@ -423,8 +723,8 @@ export default function Clients() {
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {cInvoices.slice(0, 10).map(inv => {
-                                                        const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                                                    {cAllInvoices.slice(0, 10).map(inv => {
+                                                        const base = (inv.invoice_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate, 0);
                                                         const total = base * (1 - (inv.discount_percentage || 0) / 100);
                                                         return (
                                                             <TableRow key={inv.id}>
@@ -433,6 +733,52 @@ export default function Clients() {
                                                                 <TableCell>
                                                                     <Badge variant={inv.status === 'paid' ? 'default' : inv.status === 'draft' ? 'secondary' : 'outline'} className="text-[10px] uppercase">
                                                                         {inv.status}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-right font-bold text-sm">{fmt(total)}</TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        )}
+                                    </div>
+
+                                    {/* Quotations Table */}
+                                    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                                        <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-gray-900">Quotations</h3>
+                                                <p className="text-xs text-gray-400">{cQuotations.length} total records</p>
+                                            </div>
+                                            <TrendingUp className="h-4 w-4 text-gray-300" />
+                                        </div>
+                                        {cQuotations.length === 0 ? (
+                                            <div className="p-8 text-center">
+                                                <TrendingUp className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+                                                <p className="text-sm text-gray-400">No quotations found for this client.</p>
+                                            </div>
+                                        ) : (
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>Quotation #</TableHead>
+                                                        <TableHead>Date</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead className="text-right">Amount</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {cQuotations.slice(0, 10).map(q => {
+                                                        const base = (q.quotation_items as any[] || []).reduce((a: number, i: any) => a + i.quantity * i.rate * (1 + (i.gst || 0) / 100), 0);
+                                                        const total = base * (1 - (q.discount_percentage || 0) / 100);
+                                                        return (
+                                                            <TableRow key={q.id}>
+                                                                <TableCell className="font-mono text-xs font-bold">{q.quotation_number}</TableCell>
+                                                                <TableCell className="text-xs text-gray-500">{q.date ? format(new Date(q.date), "MMM d, yyyy") : "—"}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant={q.status === 'invoiced' ? 'default' : q.status === 'sent' ? 'outline' : 'secondary'} className="text-[10px] uppercase">
+                                                                        {q.status}
                                                                     </Badge>
                                                                 </TableCell>
                                                                 <TableCell className="text-right font-bold text-sm">{fmt(total)}</TableCell>
@@ -585,14 +931,19 @@ export default function Clients() {
 
             <Dialog open={!!historyClient} onOpenChange={() => setHistoryClient(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto font-sans">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <History className="h-5 w-5 text-primary" />
-                            Transaction History: {historyClient?.name}
-                        </DialogTitle>
-                        <DialogDescription>
-                            Review all financial exchanges, invoices, and payments for this account.
-                        </DialogDescription>
+                    <DialogHeader className="flex flex-row items-center justify-between print:hidden">
+                        <div>
+                            <DialogTitle className="flex items-center gap-2">
+                                <History className="h-5 w-5 text-primary" />
+                                Transaction History: {historyClient?.name}
+                            </DialogTitle>
+                            <DialogDescription>
+                                Review all financial exchanges, invoices, and payments for this account.
+                            </DialogDescription>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => window.print()} className="shrink-0">
+                            <Printer className="h-4 w-4 mr-1.5" /> Print Ledger
+                        </Button>
                     </DialogHeader>
                     
                     <div className="space-y-6 py-4">
@@ -697,7 +1048,7 @@ export default function Clients() {
                             </div>
                         </div>
                     </div>
-                    <DialogFooter className="border-t pt-4">
+                    <DialogFooter className="border-t pt-4 print:hidden">
                         <Button variant="outline" onClick={() => setHistoryClient(null)} className="w-full sm:w-auto">Close Ledger</Button>
                     </DialogFooter>
                 </DialogContent>

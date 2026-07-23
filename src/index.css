@@ -105,8 +105,23 @@ All colors MUST be HSL.
 }
 
 @media print {
+  /* Scale down the entire content to fit on a single page */
+  html, body {
+    width: 210mm !important;
+    height: auto !important;
+    overflow: visible !important;
+    zoom: normal !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   /* Hide the main application container so it doesn't interfere */
-  #root, #sidebar-wrapper {
+  #root, #sidebar-wrapper, [class*="DialogOverlay"], .bg-black\/80, [data-state="open"]::before {
+    display: none !important;
+  }
+
+  /* Hide any portal elements that are overlays or backgrounds */
+  div[class*="backdrop-blur"], div[class*="bg-black/"] {
     display: none !important;
   }
 
@@ -116,14 +131,15 @@ All colors MUST be HSL.
     left: 0 !important;
     top: 0 !important;
     transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
     height: auto !important;
     max-height: none !important;
     border: none !important;
     box-shadow: none !important;
     background: white !important;
-    padding: 20px !important;
+    padding: 0px !important;
+    margin: 0px !important;
     overflow: visible !important;
   }
 
@@ -137,17 +153,111 @@ All colors MUST be HSL.
     display: none !important;
   }
   
-  /* Remove scrollbars and borders specific to print area */
+  /* Remove scrollbars and borders specific to print area and scale down elements slightly */
   #print-area {
     border: none !important;
     box-shadow: none !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
+    width: 194mm !important;
+    max-width: 194mm !important;
+    font-size: 13px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #print-area h1 {
+    font-size: 1.6rem !important;
+  }
+
+  #print-area .grid {
+    gap: 1rem !important;
+  }
+
+  #print-area table th, #print-area table td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 12px !important;
+  }
+
+  #print-area .space-y-6 > * + * {
+    margin-top: 0.5rem !important;
+  }
+
+  #print-area .pb-6 {
+    padding-bottom: 0.5rem !important;
+  }
+
+  #print-area .pt-8 {
+    padding-top: 0.5rem !important;
+  }
+
+  #print-area .mt-16 {
+    margin-top: 1rem !important;
+  }
+
+  #print-area .pt-16 {
+    padding-top: 1rem !important;
+  }
+
+  #print-area .mb-8 {
+    margin-bottom: 0px !important;
   }
 
   @page {
     size: A4;
-    margin: 1cm;
+    margin: 1.5cm 0.8cm 0.8cm 0.8cm !important;
   }
+}
+
+/* Force Times New Roman font, black borders, and transparent backgrounds for all invoice elements globally */
+#print-area {
+  font-size: 13px !important;
+  font-family: 'Times New Roman', Times, serif !important;
+}
+
+#print-area .text-xs {
+  font-size: 12.5px !important;
+}
+
+#print-area .text-sm {
+  font-size: 14.5px !important;
+}
+
+#print-area * {
+  border-color: #000000 !important;
+  font-family: 'Times New Roman', Times, serif !important;
+}
+
+#print-area .bg-\[\#1e3a8a\] {
+  background-color: transparent !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+}
+
+#print-area .bg-\[\#1e3a8a\] * {
+  color: #000000 !important;
+}
+
+#print-area table thead tr th {
+  color: #000000 !important;
+  background-color: transparent !important;
+}
+
+#print-area .bg-\[\#1e3a8a\]\/5 {
+  background-color: transparent !important;
+  border-color: #000000 !important;
+}
+
+#print-area .text-\[\#1e3a8a\] {
+  color: #000000 !important;
+}
+
+#print-area table, #print-area th, #print-area td, #print-area div, #print-area span {
+  border-color: #000000 !important;
+}
+
+#print-area .border, #print-area .border-b, #print-area .border-t, #print-area .border-r, #print-area .border-l {
+  border-color: #000000 !important;
+  border-style: solid !important;
 }

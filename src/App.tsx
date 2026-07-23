@@ -11,7 +11,6 @@ import { supabase } from "@/integrations/supabase/client";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Invoices from "./pages/Invoices";
-import Analysis from "./pages/Analysis";
 import Clients from "./pages/Clients";
 import PublicInvoice from "./pages/PublicInvoice";
 import ClientPortal from "./pages/ClientPortal";
@@ -26,6 +25,7 @@ import Tickets from "./pages/Tickets";
 import Roles from "./pages/Roles";
 import Projects from "./pages/Projects";
 import BugTracker from "./pages/BugTracker";
+import Quotations from "./pages/Quotations";
 
 import NotFound from "./pages/NotFound";
 import { Loader2, Lock } from "lucide-react";
@@ -40,8 +40,8 @@ const ROLE_LEVELS: Record<string, number> = {
 };
 
 const ROLE_LANDING_PAGES: Record<string, string> = {
-  admin: "/analysis",
-  accounts_manager: "/transactions",
+  admin: "/dashboard",
+  accounts_manager: "/dashboard",
   project_manager: "/projects",
   staff: "/invoices",
   client: "/portal",
@@ -120,13 +120,13 @@ const App = () => (
                 <AuthRedirect />
               </ProtectedRoute>
             } />
+            <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'staff', 'project_manager']}><Dashboard /></ProtectedRoute>} />
             <Route path="/transactions" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Transactions /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute allowedRoles={['admin', 'staff']}><Invoices /></ProtectedRoute>} />
             <Route path="/public/invoice/:id" element={<PublicInvoice />} />
             <Route path="/portal" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
             <Route path="/portal/:clientNumber" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
             <Route path="/clients" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Clients /></ProtectedRoute>} />
-            <Route path="/analysis" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Analysis /></ProtectedRoute>} />
             <Route path="/products" element={<ProtectedRoute allowedRoles={['admin', 'staff']}><Products /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin']}><Suppliers /></ProtectedRoute>} />
             <Route path="/bills" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
@@ -136,6 +136,7 @@ const App = () => (
             <Route path="/roles" element={<ProtectedRoute allowedRoles={['admin']}><Roles /></ProtectedRoute>} />
             <Route path="/bug-tracker" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'ticket_support']}><BugTracker /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Projects /></ProtectedRoute>} />
+            <Route path="/quotations" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'staff']}><Quotations /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute minLevel={10}><Settings /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />

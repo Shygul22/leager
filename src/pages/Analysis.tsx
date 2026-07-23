@@ -1,16 +1,19 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { format, isToday, isThisWeek, parseISO } from "date-fns";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend,
     PieChart, Pie, Cell, LineChart, Line
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
-import { TrendingUp, TrendingDown, Wallet, IndianRupee, AlertCircle, ShoppingBag } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, IndianRupee, AlertCircle, ShoppingBag, Scale, ArrowUpRight, ArrowDownRight, BarChart2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getBillTotal, getInvoiceTotal } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#d0ed57', '#a4de6c'];
 
@@ -94,13 +97,30 @@ export default function Analysis() {
         enabled: !!user && !!role,
     });
 
+    const { data: quotations = [] } = useQuery({
+        queryKey: ["quotations", user?.id, role],
+        queryFn: async () => {
+            if (!user) return [];
+            let query = supabase.from("quotations").select("*, quotation_items(*)");
+            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+            if (!isStaffOrAbove) {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!user && !!role,
+    });
+
     const uniqueMonths = useMemo(() => {
         const months = new Set<string>();
         months.add(format(new Date(), "MMM yyyy")); // Ensure current month is always an option
         transactions.forEach(t => months.add(format(new Date(t.date), "MMM yyyy")));
-        // Optionally sort them if needed, but the original logic sorts the monthly data for charts below
+        invoices.forEach((inv: any) => inv.date && months.add(format(new Date(inv.date), "MMM yyyy")));
+        quotations.forEach((q: any) => q.date && months.add(format(new Date(q.date), "MMM yyyy")));
         return Array.from(months);
-    }, [transactions]);
+    }, [transactions, invoices, quotations]);
 
     const filteredTransactions = useMemo(() => {
         if (selectedRange === "all") return transactions;
@@ -127,16 +147,43 @@ export default function Analysis() {
         return invoices.filter((inv: any) => format(new Date(inv.date), "MMM yyyy") === selectedRange);
     }, [invoices, selectedRange]);
 
+    const filteredQuotations = useMemo(() => {
+        if (selectedRange === "all") return quotations;
+        if (selectedRange === "today") return quotations.filter((q: any) => isToday(parseISO(q.date)));
+        if (selectedRange === "this-week") return quotations.filter((q: any) => isThisWeek(parseISO(q.date)));
+        return quotations.filter((q: any) => format(new Date(q.date), "MMM yyyy") === selectedRange);
+    }, [quotations, selectedRange]);
+
+    const taxStats = useMemo(() => {
+        const outputGst = filteredInvoices.reduce((sum, inv) => {
+            return sum + (inv.invoice_items || []).reduce((s: number, i: any) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+        }, 0);
+
+        const inputGst = filteredBills.reduce((sum, bill) => {
+            return sum + (bill.bill_items || []).reduce((s: number, i: any) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+        }, 0);
+
+        const b2bInvoices = filteredInvoices.filter(inv => inv.client_gstin && inv.client_gstin.trim().length > 0);
+        const b2bGst = b2bInvoices.reduce((sum, inv) => {
+            return sum + (inv.invoice_items || []).reduce((s: number, i: any) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+        }, 0);
+
+        return {
+            outputGst,
+            inputGst,
+            netPayable: outputGst - inputGst,
+            b2bGst,
+            b2cGst: outputGst - b2bGst,
+            invCount: filteredInvoices.length,
+            billCount: filteredBills.length
+        };
+    }, [filteredInvoices, filteredBills]);
+
     const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + getInvoiceTotal(inv.invoice_items, inv.discount_percentage), 0);
     const totalBillsCost = filteredBills.reduce((sum, b) => sum + getBillTotal(b.bill_items), 0);
     
     // Cash Logic (Actual Cash Flow / Savings)
-    const invoiceIncome = filteredInvoices.reduce((sum, inv: any) => sum + (Number(inv.paid_amount) || 0), 0);
-    const manualIncome = incomeTxs
-        .filter(t => !t.description?.startsWith("Payment Received - Invoice "))
-        .reduce((sum, t) => sum + Number(t.amount), 0);
-    
-    const totalCashIn = invoiceIncome + manualIncome;
+    const totalCashIn = incomeTxs.reduce((sum, t) => sum + Number(t.amount), 0);
     const totalCashOut = expenseTxs.reduce((sum, t) => sum + Number(t.amount), 0);
     const savingAmount = totalCashIn - totalCashOut;
 
@@ -151,12 +198,8 @@ export default function Analysis() {
     // Requested: Total Costs (Calculated in Transactions)
     const totalTransactionsCost = totalCashOut;
 
-    // Requested: Outstanding Amount (Balance due from invoices)
-    const outstandingAmount = filteredInvoices.reduce((sum, inv) => {
-        const total = getInvoiceTotal(inv.invoice_items, inv.discount_percentage);
-        const paid = Number(inv.paid_amount) || 0;
-        return sum + (total - paid);
-    }, 0);
+    // Requested: Outstanding Amount (Balance due from invoices, based on ledger transactions)
+    const outstandingAmount = Math.max(0, totalRevenue - totalCashIn);
 
     // Operating expenses are manual expenses NOT logged as bill payments
     const operatingExpenses = expenseTxs
@@ -236,10 +279,7 @@ export default function Analysis() {
         const existing = trendMap.get(month) || { revenue: 0, cost: 0, savings: 0, collected: 0 };
         
         if (t.type === "income") {
-            // Only add manual income not from invoices to avoid double counting
-            if (!t.description?.startsWith("Payment Received - Invoice ")) {
-                existing.collected += Number(t.amount);
-            }
+            existing.collected += Number(t.amount);
         } else {
             existing.cost += Number(t.amount);
         }
@@ -358,7 +398,6 @@ export default function Analysis() {
                             {getCurrencySymbol(profile?.default_currency)}
                             {formatAmount(savingAmount)}
                         </p>
-                        <p className="text-[9px] text-muted-foreground font-semibold mt-1 uppercase tracking-widest text-right">Total Savings</p>
                     </CardContent>
                 </Card>
             </div>
@@ -656,6 +695,239 @@ export default function Analysis() {
                             </tbody>
                         </table>
                     </div>
+                </CardContent>
+            </Card>
+
+            {/* Unified Data Explorer */}
+            <Card className="shadow-sm border-none bg-card/50 backdrop-blur-sm mt-8">
+                <CardHeader className="border-b bg-muted/30 flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle className="text-lg font-bold">Unified Data Explorer</CardTitle>
+                        <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-semibold">Quotations, Invoices, Transactions & Tax Reports</p>
+                    </div>
+                    <BarChart2 className="h-5 w-5 text-muted-foreground opacity-50" />
+                </CardHeader>
+                <CardContent className="p-6">
+                    <Tabs defaultValue="quotations" className="space-y-4">
+                        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full md:w-[600px]">
+                            <TabsTrigger value="quotations">Quotations</TabsTrigger>
+                            <TabsTrigger value="invoices">Invoices</TabsTrigger>
+                            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                            <TabsTrigger value="tax-reports">Tax Reports</TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="quotations" className="space-y-4">
+                            <div className="overflow-x-auto rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="font-bold text-[10px] uppercase">Quotation #</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Client</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Date</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Status</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase text-right">Amount</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredQuotations.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">No quotations found for this period</TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            filteredQuotations.map((q: any) => {
+                                                const total = getInvoiceTotal(q.quotation_items, q.discount_percentage);
+                                                return (
+                                                    <TableRow key={q.id}>
+                                                        <TableCell className="font-medium text-xs">{q.quotation_number}</TableCell>
+                                                        <TableCell className="text-xs">{q.client_name}</TableCell>
+                                                        <TableCell className="text-xs">{q.date ? format(new Date(q.date), "dd MMM yyyy") : ""}</TableCell>
+                                                        <TableCell>
+                                                            <Badge variant={
+                                                                q.status === "accepted" || q.status === "invoiced" ? "default" :
+                                                                q.status === "sent" ? "outline" :
+                                                                q.status === "rejected" ? "destructive" : "secondary"
+                                                            } className="text-[10px] font-bold uppercase">
+                                                                {q.status}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-bold text-xs">
+                                                            {getCurrencySymbol(q.currency)}
+                                                            {formatAmount(total)}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="invoices" className="space-y-4">
+                            <div className="overflow-x-auto rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="font-bold text-[10px] uppercase">Invoice #</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Client</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Date</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Status</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase text-right">Paid Amount</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase text-right">Total Amount</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredInvoices.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground italic">No invoices found for this period</TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            filteredInvoices.map((inv: any) => {
+                                                const total = getInvoiceTotal(inv.invoice_items, inv.discount_percentage);
+                                                return (
+                                                    <TableRow key={inv.id}>
+                                                        <TableCell className="font-medium text-xs">{inv.invoice_number}</TableCell>
+                                                        <TableCell className="text-xs">{inv.client_name}</TableCell>
+                                                        <TableCell className="text-xs">{inv.date ? format(new Date(inv.date), "dd MMM yyyy") : ""}</TableCell>
+                                                        <TableCell>
+                                                            <Badge variant={
+                                                                inv.status === "paid" ? "default" :
+                                                                inv.status === "partially paid" ? "secondary" :
+                                                                inv.status === "cancelled" ? "destructive" : "outline"
+                                                            } className="text-[10px] font-bold uppercase">
+                                                                {inv.status}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="text-right text-xs">
+                                                            {getCurrencySymbol(inv.currency)}
+                                                            {formatAmount(Number(inv.paid_amount) || 0)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-bold text-xs">
+                                                            {getCurrencySymbol(inv.currency)}
+                                                            {formatAmount(total)}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="transactions" className="space-y-4">
+                            <div className="overflow-x-auto rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="font-bold text-[10px] uppercase">Date</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Description</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Category</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase">Type</TableHead>
+                                            <TableHead className="font-bold text-[10px] uppercase text-right">Amount</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredTransactions.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">No transactions found for this period</TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            filteredTransactions.map((tx: any) => (
+                                                <TableRow key={tx.id}>
+                                                    <TableCell className="text-xs">{tx.date ? format(new Date(tx.date), "dd MMM yyyy") : ""}</TableCell>
+                                                    <TableCell className="text-xs">{tx.description}</TableCell>
+                                                    <TableCell className="text-xs">{tx.category}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={tx.type === "income" ? "default" : "destructive"} className="text-[10px] font-bold uppercase">
+                                                            {tx.type}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-bold text-xs">
+                                                        {getCurrencySymbol(profile?.default_currency)}
+                                                        {formatAmount(Number(tx.amount) || 0)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="tax-reports" className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Card className="bg-emerald-50/50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50 shadow-sm">
+                                    <CardHeader className="pb-2">
+                                        <CardDescription className="flex items-center text-emerald-600 dark:text-emerald-400 font-bold uppercase text-[9px] tracking-wider">
+                                            <ArrowUpRight className="w-3.5 h-3.5 mr-1" /> GST Collected (Output)
+                                        </CardDescription>
+                                        <CardTitle className="text-2xl font-bold">₹{formatAmount(taxStats.outputGst)}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-[10px] text-muted-foreground">From {taxStats.invCount} invoices</p>
+                                    </CardContent>
+                                </Card>
+
+                                <Card className="bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50 shadow-sm">
+                                    <CardHeader className="pb-2">
+                                        <CardDescription className="flex items-center text-amber-600 dark:text-amber-400 font-bold uppercase text-[9px] tracking-wider">
+                                            <ArrowDownRight className="w-3.5 h-3.5 mr-1" /> GST Paid (Input Credit)
+                                        </CardDescription>
+                                        <CardTitle className="text-2xl font-bold">₹{formatAmount(taxStats.inputGst)}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-[10px] text-muted-foreground">From {taxStats.billCount} bills</p>
+                                    </CardContent>
+                                </Card>
+
+                                <Card className="bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900/50 shadow-sm">
+                                    <CardHeader className="pb-2">
+                                        <CardDescription className="flex items-center text-blue-600 dark:text-blue-400 font-bold uppercase text-[9px] tracking-wider">
+                                            <Scale className="w-3.5 h-3.5 mr-1" /> Net GST Payable
+                                        </CardDescription>
+                                        <CardTitle className={`text-2xl font-bold ${taxStats.netPayable >= 0 ? "text-blue-600" : "text-destructive"}`}>
+                                            ₹{formatAmount(taxStats.netPayable)}
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-[10px] text-muted-foreground">Estimated tax liability</p>
+                                    </CardContent>
+                                </Card>
+                            </div>
+
+                            <Card className="border shadow-sm">
+                                <CardHeader className="py-4">
+                                    <CardTitle className="text-sm font-bold uppercase tracking-wider">B2B vs B2C Breakdown</CardTitle>
+                                    <CardDescription className="text-xs">GST collected categorized by customer type.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="font-bold text-[10px] uppercase">Category</TableHead>
+                                                <TableHead className="font-bold text-[10px] uppercase text-right">GST Amount</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            <TableRow>
+                                                <TableCell className="font-medium text-xs">B2B (With GSTIN)</TableCell>
+                                                <TableCell className="text-right text-xs">₹{formatAmount(taxStats.b2bGst)}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell className="font-medium text-xs">B2C (Consumer)</TableCell>
+                                                <TableCell className="text-right text-xs">₹{formatAmount(taxStats.b2cGst)}</TableCell>
+                                            </TableRow>
+                                            <TableRow className="font-bold border-t bg-muted/20">
+                                                <TableCell className="text-xs">Total Output GST</TableCell>
+                                                <TableCell className="text-right text-xs">₹{formatAmount(taxStats.outputGst)}</TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+                    </Tabs>
                 </CardContent>
             </Card>
         </div>

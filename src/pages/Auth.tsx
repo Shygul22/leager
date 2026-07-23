@@ -54,6 +54,25 @@ export default function Auth() {
         }
     };
 
+    const handleResetPassword = async () => {
+        if (!email) {
+            toast.error("Please enter your email address first.");
+            return;
+        }
+        setLoading(true);
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/settings`,
+            });
+            if (error) throw error;
+            toast.success("Password reset link sent! Check your email.");
+        } catch (err: any) {
+            toast.error(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const [loginId, setLoginId] = useState("");
     const [loginEmail, setLoginEmail] = useState("");
     const [isVerifying, setIsVerifying] = useState(false);
@@ -161,7 +180,16 @@ export default function Auth() {
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="password" className="text-gray-700 ml-1 font-medium">Password</Label>
+                                            <div className="flex items-center justify-between">
+                                                <Label htmlFor="password" className="text-gray-700 ml-1 font-medium">Password</Label>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={handleResetPassword}
+                                                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                                                >
+                                                    Forgot Password?
+                                                </button>
+                                            </div>
                                             <div className="relative group">
                                                 <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                                                 <Input

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,75 @@ import { format, isToday, isThisWeek, parseISO } from "date-fns";
 import { Plus, Eye, Trash2, X, Edit, Printer, Search, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { numberToWords } from "@/utils/numberToWords";
+
+const parseBankDetails = (details: string | null) => {
+  const defaultDetails = {
+    holder: "DREAM LIFTS",
+    bank: "BANK OF INDIA",
+    accNum: "806320110000322",
+    branch: "PERUNGALATHUR",
+    ifsc: "BKID0008063"
+  };
+  if (!details) return defaultDetails;
+  
+  const lines = details.split('\n');
+  const parsed = { ...defaultDetails };
+  
+  lines.forEach(line => {
+    const parts = line.split(':');
+    if (parts.length >= 2) {
+      const key = parts[0].trim().toLowerCase();
+      const val = parts.slice(1).join(':').trim();
+      if (key.includes("holder") || key.includes("account name") || key.includes("account holder")) parsed.holder = val;
+      else if (key.includes("bank name") || key.includes("bank")) parsed.bank = val;
+      else if (key.includes("account number") || key.includes("account no") || key.includes("acc")) parsed.accNum = val;
+      else if (key.includes("branch")) parsed.branch = val;
+      else if (key.includes("ifsc")) parsed.ifsc = val;
+    }
+  });
+  return parsed;
+};
+
+const getPlaceOfSupply = (gstin?: string | null, address?: string | null) => {
+  if (gstin && gstin.length >= 2) {
+    const code = gstin.substring(0, 2);
+    // Ensure the first two characters are digits (valid GSTIN state code)
+    if (/^\d{2}$/.test(code)) {
+      if (code === "33") return "TAMIL NADU (33)";
+      return code;
+    }
+  }
+  if (address) {
+    const addr = address.toLowerCase();
+    if (addr.includes("tamil nadu") || addr.includes(", tn") || addr.includes("pudukottai") || addr.includes("kallakurichi") || addr.includes("chennai")) {
+      return "TAMIL NADU (33)";
+    }
+  }
+  return "TAMIL NADU (33)";
+};
+
+const cleanAddress = (address?: string | null) => {
+  if (!address) return "";
+  return address
+    .split('\n')
+    .filter(line => {
+      const lower = line.toLowerCase();
+      return !lower.includes("contact name") && 
+             !lower.includes("contact person") && 
+             !lower.includes("email") && 
+             !lower.includes("mobile") &&
+             !lower.includes("phone");
+    })
+    .join('\n');
+};
+
+const getCompanyName = (name?: string | null) => {
+  if (!name || name === "Your Business Name" || name.toUpperCase() === "ZENJOURNEY PRIVATE LIMITED") {
+    return "ZenJourney InfoTech";
+  }
+  return name;
+};
 
 type InvoiceItem = { id?: string; product_id?: string; description: string; quantity: number; rate: number; gst: number; mrp?: number; discount?: number };
 type Invoice = {
@@ -52,6 +121,24 @@ const getCurrencySymbol = (currency?: string | null) => {
   }
 };
 
+const statusColor = (s: string) => {
+  if (s === "paid") return "default";
+  if (s === "partially_paid") return "secondary";
+  if (s === "sent") return "outline";
+  return "outline";
+};
+
+const getSubtotal = (items?: InvoiceItem[]) => (items || []).reduce((s, i) => s + i.quantity * i.rate, 0);
+const getGSTTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
+  const totalGst = (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
+  return totalGst * (1 - (discountPercentage || 0) / 100);
+};
+const getTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
+  const sub = getSubtotal(items);
+  const disc = sub * ((discountPercentage || 0) / 100);
+  return (sub - disc) + getGSTTotal(items, discountPercentage);
+};
+
 export default function Invoices() {
   const { user, role } = useAuth();
   const queryClient = useQueryClient();
@@ -63,6 +150,7 @@ export default function Invoices() {
   const [bulkPreview, setBulkPreview] = useState<Invoice[] | null>(null);
   const [bulkIncludeSignature, setBulkIncludeSignature] = useState(true);
   const [bulkIncludeLogo, setBulkIncludeLogo] = useState(true);
+  const [clientSearchOpen, setClientSearchOpen] = useState(false);
   const [form, setForm] = useState({
     invoice_number: "", client_id: "", client_name: "", client_email: "", client_phone: "", client_address: "", client_gstin: "", client_msme_number: "", client_num: "", client_project_id: "", date: format(new Date(), "yyyy-MM-dd"), due_date: "", notes: "", payment_reference: "", include_signature: true, include_background: true, currency: "INR", exchange_rate: 1,
     discount_percentage: 0,
@@ -70,6 +158,43 @@ export default function Invoices() {
     status: "draft",
     items: [{ description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] as InvoiceItem[],
   });
+
+  useEffect(() => {
+    if (form.status === "paid") {
+      const total = getTotal(form.items, form.discount_percentage);
+      if (form.paid_amount !== total) {
+        setForm(prev => ({ ...prev, paid_amount: total }));
+      }
+    }
+  }, [form.items, form.discount_percentage, form.status]);
+
+  const handleStatusChange = (val: string) => {
+    const total = getTotal(form.items, form.discount_percentage);
+    setForm(prev => ({
+      ...prev,
+      status: val,
+      paid_amount: val === "paid" ? total : (val === "draft" || val === "sent" ? 0 : prev.paid_amount)
+    }));
+  };
+
+  const handlePaidAmountChange = (val: number) => {
+    const total = getTotal(form.items, form.discount_percentage);
+    setForm(prev => {
+      let nextStatus = prev.status;
+      if (val >= total && total > 0) {
+        nextStatus = "paid";
+      } else if (val > 0) {
+        nextStatus = "partially_paid";
+      } else {
+        nextStatus = "draft";
+      }
+      return {
+        ...prev,
+        paid_amount: val,
+        status: nextStatus
+      };
+    });
+  };
 
 
   const { data: profile } = useQuery({
@@ -134,6 +259,38 @@ export default function Invoices() {
     enabled: !!user,
   });
 
+  const { data: transactions = [] } = useQuery({
+    queryKey: ["transactions", user?.id, role],
+    queryFn: async () => {
+      if (!user) return [];
+      let query = supabase.from("transactions").select("*");
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("date", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!role,
+  });
+
+  const { data: quotations = [] } = useQuery({
+    queryKey: ["quotations", user?.id, role],
+    queryFn: async () => {
+      if (!user) return [];
+      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      let query = supabase.from("quotations").select("*, quotation_items(*)");
+      if (!isStaffOrAbove) {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as unknown as any[];
+    },
+    enabled: !!user && !!role,
+  });
+
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
     months.add(format(new Date(), "MMM yyyy")); // Ensure current month is always an option
@@ -147,6 +304,79 @@ export default function Invoices() {
     if (selectedRange === "this-week") return invoices.filter((inv: any) => isThisWeek(parseISO(inv.date)));
     return invoices.filter((inv: any) => format(new Date(inv.date), "MMM yyyy") === selectedRange);
   }, [invoices, selectedRange]);
+
+  const clientInvoices = useMemo(() => {
+    if (!form.client_id) return [];
+    return invoices.filter(inv => inv.client_id === form.client_id);
+  }, [invoices, form.client_id]);
+
+  const clientStats = useMemo(() => {
+    if (!form.client_id || clientInvoices.length === 0) return null;
+    let totalInvoiced = 0;
+    
+    clientInvoices.forEach(inv => {
+      const invTotal = getTotal(inv.invoice_items, inv.discount_percentage);
+      totalInvoiced += invTotal;
+    });
+
+    const clientTxs = (transactions || []).filter(t => 
+      t.client_id === form.client_id || 
+      (t.description && t.description.toLowerCase().includes(form.client_name.toLowerCase()))
+    );
+
+    // Calculate paid amount by checking each invoice and its corresponding transactions
+    const invoiceTxPaidAmount = clientInvoices.reduce((sum, inv) => {
+      const invTxSum = clientTxs
+        .filter(t => t.type === "income" && 
+            t.description && 
+            t.description.includes(inv.invoice_number) &&
+            !t.description.startsWith("Invoice ")
+        )
+        .reduce((s, t) => s + (t.amount || 0), 0);
+      return sum + Math.max(inv.paid_amount || 0, invTxSum);
+    }, 0);
+    
+    // Plus any general payments not linked to a specific invoice
+    const generalPayments = clientTxs
+      .filter(t => t.type === "income" && 
+        !t.description?.startsWith("Invoice ") && 
+        !clientInvoices.some(inv => t.description && t.description.includes(inv.invoice_number))
+      )
+      .reduce((s, t) => s + (t.amount || 0), 0);
+
+    const totalPaid = invoiceTxPaidAmount + generalPayments;
+    
+    // Total quotations for this client (incl. Tax, excl. draft/rejected)
+    const clientQuotations = (quotations || []).filter((q: any) =>
+      (q.client_id === form.client_id ||
+       q.client_name?.trim().toLowerCase() === form.client_name?.trim().toLowerCase()) &&
+      q.status !== "draft" && q.status !== "rejected"
+    );
+    const totalQuotations = clientQuotations.reduce((sum: number, q: any) => {
+      const subtotal = (q.quotation_items as any[] || []).reduce((s: number, i: any) =>
+        s + (i.quantity * i.rate * (1 + (i.gst || 0) / 100)), 0
+      );
+      const discountPercentage = q.discount_percentage || 0;
+      return sum + subtotal * (1 - discountPercentage / 100);
+    }, 0);
+
+    const sortedByDate = [...clientInvoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const lastPaidInvoice = sortedByDate.find(inv => (inv.paid_amount || 0) > 0);
+
+    return {
+      totalInvoiced,
+      totalPaid,
+      totalQuotations,
+      balanceDue: totalInvoiced - totalPaid,
+      quotationBalance: Math.max(0, totalQuotations - totalPaid),
+      lastPayment: lastPaidInvoice ? {
+        amount: lastPaidInvoice.paid_amount,
+        date: lastPaidInvoice.date,
+        invoice_number: lastPaidInvoice.invoice_number
+      } : null,
+      invoicesHistory: sortedByDate.slice(0, 5)
+    };
+  }, [clientInvoices, form.client_id, form.client_name, transactions, quotations]);
 
   const createInvoice = useMutation({
     mutationFn: async () => {
@@ -187,7 +417,7 @@ export default function Invoices() {
           queryClient.invalidateQueries({ queryKey: ["profile"] });
         }
 
-        // 4. Auto-save Client to Address Book if it doesn't already exist
+        // 4. Auto-save or update Client to Address Book
         const existingClient = clients.find(c => c.name.toLowerCase() === form.client_name.toLowerCase());
         if (!existingClient) {
           await supabase.from("clients").insert({
@@ -201,10 +431,20 @@ export default function Invoices() {
             client_number: form.client_num || null
           });
           queryClient.invalidateQueries({ queryKey: ["clients"] });
+        } else {
+          await supabase.from("clients").update({
+            email: form.client_email || existingClient.email,
+            phone: form.client_phone || existingClient.phone,
+            address: form.client_address || existingClient.address,
+            gstin: form.client_gstin || existingClient.gstin,
+            msme_number: form.client_msme_number || existingClient.msme_number,
+            client_number: form.client_num || existingClient.client_number
+          }).eq("id", existingClient.id);
+          queryClient.invalidateQueries({ queryKey: ["clients"] });
         }
 
-        // 5. Auto-log Transaction to Ledger if enabled
-        if (profile?.auto_log_invoices !== false) {
+        // 5. Auto-log Transaction to Ledger if enabled and status is paid
+        if (profile?.auto_log_invoices !== false && form.status === "paid") {
           const invoiceTotal = getTotal(form.items);
           if (invoiceTotal > 0) {
             await supabase.from("transactions").insert({
@@ -242,14 +482,21 @@ export default function Invoices() {
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("invoices").update({ status }).eq("id", id);
+      const inv = invoices.find(i => i.id === id);
+      if (!inv) throw new Error("Invoice not found");
+
+      const total = getTotal(inv.invoice_items, inv.discount_percentage);
+      const paidAmount = status === "paid" ? total : (status === "draft" || status === "sent" ? 0 : inv.paid_amount || 0);
+
+      const { error } = await supabase
+        .from("invoices")
+        .update({ status, paid_amount: paidAmount })
+        .eq("id", id);
       if (error) throw error;
 
       // If status changed to "paid", auto-log income transaction for cash flow sync
       if (status === "paid") {
-        const inv = invoices.find(i => i.id === id);
-        if (inv && user) {
-          const total = getTotal(inv.invoice_items, inv.discount_percentage);
+        if (user) {
           await supabase.from("transactions").insert({
             user_id: user.id,
             date: format(new Date(), "yyyy-MM-dd"),
@@ -392,6 +639,11 @@ export default function Invoices() {
   const handleSelectClient = (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
     if (client) {
+      const hasGstin = !!(client.gstin && client.gstin.trim());
+      const updatedItems = form.items.map(item => ({
+        ...item,
+        gst: hasGstin ? 18 : 0
+      }));
       setForm({
         ...form,
         client_id: client.id,
@@ -402,27 +654,33 @@ export default function Invoices() {
         client_gstin: client.gstin || "",
         client_msme_number: client.msme_number || "",
         client_num: client.client_number || "",
-        currency: client.currency || profile?.default_currency || "INR"
+        currency: client.currency || profile?.default_currency || "INR",
+        items: updatedItems
       });
     }
   };
 
-    const statusColor = (s: string) => {
-      if (s === "paid") return "default";
-      if (s === "partially_paid") return "secondary";
-      if (s === "sent") return "outline";
-      return "outline";
-    };
-
-  const getSubtotal = (items?: InvoiceItem[]) => (items || []).reduce((s, i) => s + i.quantity * i.rate, 0);
-  const getGSTTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
-    const totalGst = (items || []).reduce((s, i) => s + (i.quantity * i.rate * (i.gst / 100)), 0);
-    return totalGst * (1 - (discountPercentage || 0) / 100);
-  };
-  const getTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
-    const sub = getSubtotal(items);
-    const disc = sub * ((discountPercentage || 0) / 100);
-    return (sub - disc) + getGSTTotal(items, discountPercentage);
+  const handleClientNameChange = (name: string) => {
+    setForm(prev => {
+      const updated = { ...prev, client_name: name };
+      const matchedClient = clients.find(c => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+      if (matchedClient) {
+        const hasGstin = !!(matchedClient.gstin && matchedClient.gstin.trim());
+        updated.client_id = matchedClient.id;
+        updated.client_email = matchedClient.email || "";
+        updated.client_phone = matchedClient.phone || "";
+        updated.client_address = matchedClient.address || "";
+        updated.client_gstin = matchedClient.gstin || "";
+        updated.client_msme_number = matchedClient.msme_number || "";
+        updated.client_num = matchedClient.client_number || "";
+        updated.currency = matchedClient.currency || profile?.default_currency || "INR";
+        updated.items = prev.items.map(item => ({
+          ...item,
+          gst: hasGstin ? 18 : 0
+        }));
+      }
+      return updated;
+    });
   };
 
   const handlePrint = () => {
@@ -577,19 +835,106 @@ export default function Invoices() {
             {clients.length > 0 && (
               <div className="bg-secondary/30 p-4 rounded-lg border border-border/50">
                 <Label className="text-muted-foreground mb-2 block font-medium">Quick Fill from Address Book</Label>
-                <Select onValueChange={handleSelectClient}>
-                  <SelectTrigger className="w-full bg-background"><SelectValue placeholder="Select a saved client..." /></SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between text-left bg-background font-normal">
+                      <span>Select a saved client...</span>
+                      <Search className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search by name, ID, email, phone..." />
+                      <CommandList>
+                        <CommandEmpty>No client found.</CommandEmpty>
+                        <CommandGroup>
+                          {clients.map((c) => (
+                            <CommandItem
+                              key={c.id}
+                              value={`${c.client_number || ""} ${c.name} ${c.email || ""} ${c.phone || ""}`}
+                              onSelect={() => {
+                                handleSelectClient(c.id);
+                                setClientSearchOpen(false);
+                              }}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-sm">
+                                  {c.client_number ? `[${c.client_number}] ` : ""}{c.name}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {c.email ? `Email: ${c.email}` : ""} {c.phone ? ` | Phone: ${c.phone}` : ""}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
+
+            {clientStats && (
+              <div className="bg-primary/5 border border-primary/10 rounded-lg p-4 space-y-3 print:hidden">
+                <div className="flex items-center justify-between border-b pb-2 border-primary/10">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-primary">Client Payment History ({form.client_name})</h4>
+                  {clientStats.lastPayment && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full font-medium">
+                      Last Payment: {getCurrencySymbol(form.currency)}{clientStats.lastPayment.amount?.toLocaleString("en-IN")} on {format(new Date(clientStats.lastPayment.date), "MMM d, yyyy")}
+                    </span>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+                  <div className="bg-background/50 p-2 rounded border border-border/40">
+                    <p className="text-[9px] text-muted-foreground uppercase font-semibold">Total Invoiced</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{getCurrencySymbol(form.currency)}{clientStats.totalInvoiced.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded border border-emerald-100/50 dark:border-emerald-900/20">
+                    <p className="text-[9px] text-emerald-700 dark:text-emerald-400 uppercase font-semibold">Total Paid</p>
+                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{getCurrencySymbol(form.currency)}{clientStats.totalPaid.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className={`p-2 rounded border ${clientStats.balanceDue > 0 ? 'bg-destructive/5 border-destructive/10 text-destructive' : 'bg-background/50 border-border/40'}`}>
+                    <p className="text-[9px] uppercase font-semibold">Balance Due</p>
+                    <p className="text-sm font-bold">{getCurrencySymbol(form.currency)}{clientStats.balanceDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="bg-violet-50/50 dark:bg-violet-950/20 p-2 rounded border border-violet-100/50 dark:border-violet-900/20">
+                    <p className="text-[9px] text-violet-700 dark:text-violet-400 uppercase font-semibold">Total Quotations</p>
+                    <p className="text-sm font-bold text-violet-600 dark:text-violet-400">{getCurrencySymbol(form.currency)}{clientStats.totalQuotations.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[8px] text-muted-foreground">incl. Tax</p>
+                  </div>
+                  <div className={`p-2 rounded border ${ clientStats.quotationBalance > 0 ? 'bg-rose-50/70 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/30' : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-100/50 dark:border-emerald-900/20'}`}>
+                    <p className={`text-[9px] uppercase font-semibold ${ clientStats.quotationBalance > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>Quotation Balance</p>
+                    <p className={`text-sm font-bold ${ clientStats.quotationBalance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{getCurrencySymbol(form.currency)}{clientStats.quotationBalance.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[8px] text-muted-foreground">{clientStats.quotationBalance > 0 ? '⚠ Unpaid' : '✓ Settled'}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Recent Invoices History</p>
+                  <div className="divide-y divide-border/40 max-h-[120px] overflow-y-auto pr-1">
+                    {clientStats.invoicesHistory.map((inv) => {
+                      const invTotal = getTotal(inv.invoice_items, inv.discount_percentage);
+                      return (
+                        <div key={inv.id} className="flex items-center justify-between py-1.5 text-xs">
+                          <span className="font-mono text-muted-foreground">{inv.invoice_number} ({format(new Date(inv.date), "MMM d, yyyy")})</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-muted-foreground">Paid: <strong className="text-emerald-600 font-semibold">{getCurrencySymbol(inv.currency)}{inv.paid_amount?.toLocaleString("en-IN")}</strong> / {getCurrencySymbol(inv.currency)}{invTotal.toLocaleString("en-IN")}</span>
+                            <Badge className="text-[9px] px-1.5 py-0 capitalize" variant={statusColor(inv.status)}>{inv.status.replace('_', ' ')}</Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
             {/* 2. Metadata Grid */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-1"><Label>Invoice Number</Label><Input value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} placeholder="e.g. ZENIN015" /></div>
-              <div className="md:col-span-2"><Label>Company / Client Name *</Label><Input value={form.client_name} onChange={(e) => setForm({ ...form, client_name: e.target.value })} placeholder="e.g. Acme Corporation" /></div>
+              <div className="md:col-span-2"><Label>Company / Client Name *</Label><Input value={form.client_name} onChange={(e) => handleClientNameChange(e.target.value)} placeholder="e.g. Acme Corporation" /></div>
               <div className="md:col-span-1"><Label>Client ID (Internal)</Label><Input value={form.client_num} onChange={(e) => setForm({ ...form, client_num: e.target.value })} placeholder="e.g. ACME-001" /></div>
 
               <div className="md:col-span-2"><Label>Email Address</Label><Input type="email" value={form.client_email || ""} onChange={(e) => setForm({ ...form, client_email: e.target.value })} placeholder="billing@acme.com" /></div>
@@ -631,9 +976,9 @@ export default function Invoices() {
                   disabled={form.currency === (profile?.default_currency || "INR")}
                 />
               </div>
-              <div className="md:col-span-2">
+              <div className={form.status === "partially_paid" ? "md:col-span-2" : "md:col-span-4"}>
                 <Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                <Select value={form.status} onValueChange={handleStatusChange}>
                   <SelectTrigger className="bg-background">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
@@ -645,16 +990,18 @@ export default function Invoices() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-2">
-                <Label>Amount Already Paid ({getCurrencySymbol(form.currency)})</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={form.paid_amount}
-                  onChange={(e) => setForm({ ...form, paid_amount: parseFloat(e.target.value) || 0 })}
-                  className="bg-emerald-50 border-emerald-200 text-emerald-900 font-medium"
-                />
-              </div>
+              {form.status === "partially_paid" && (
+                <div className="md:col-span-2">
+                  <Label>Amount Already Paid ({getCurrencySymbol(form.currency)})</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.paid_amount}
+                    onChange={(e) => handlePaidAmountChange(parseFloat(e.target.value) || 0)}
+                    className="bg-emerald-50 border-emerald-200 text-emerald-900 font-medium"
+                  />
+                </div>
+              )}
             </div>
 
 
@@ -666,86 +1013,101 @@ export default function Invoices() {
               </div>
               <div className="space-y-3">
                 {/* Desktop Header */}
-                <div className="hidden md:flex gap-2 text-sm font-medium text-muted-foreground mb-2 px-1">
-                  <div className="flex-1">Product / Description</div>
-                  <div className="w-16 text-center">Qty</div>
-                  <div className="w-20 text-center">MRP</div>
-                  <div className="w-16 text-center">Disc (%)</div>
-                  <div className="w-20 text-center">Net Rate</div>
-                  <div className="w-20 text-center">GST</div>
-                  <div className="w-24 text-right">Amount</div>
-                  <div className="w-10"></div>
+                <div className="hidden lg:grid grid-cols-[1fr_64px_96px_80px_96px_96px_112px_40px] gap-2 text-sm font-medium text-muted-foreground mb-2 px-1">
+                  <div>Product / Description</div>
+                  <div className="text-center">Qty</div>
+                  <div className="text-center">MRP</div>
+                  <div className="text-center">Disc (%)</div>
+                  <div className="text-center">Net Rate</div>
+                  <div className="text-center">GST</div>
+                  <div className="text-right">Amount</div>
+                  <div></div>
                 </div>
                 {form.items.map((item, i) => (
-                  <div key={i} className="flex flex-col lg:flex-row gap-2 lg:items-start bg-muted/20 p-3 lg:p-1 rounded-md border lg:border-none relative">
-                    <div className="flex-1 flex flex-col gap-2">
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className="w-full sm:w-[140px] justify-between text-left font-normal shrink-0">
-                              <Package className="mr-2 h-4 w-4" />
-                              Catalog...
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[300px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Search services/products..." />
-                              <CommandList>
-                                <CommandEmpty>No products found.</CommandEmpty>
-                                <CommandGroup>
-                                  {products.map((product) => (
-                                    <CommandItem
-                                      key={product.id}
-                                      value={product.name}
-                                      onSelect={() => handleSelectProduct(i, product)}
-                                    >
-                                      <div className="flex flex-col">
-                                        <span className="font-medium">{product.name}</span>
-                                        <span className="text-xs text-muted-foreground">₹{product.rate} | GST: {product.gst_rate}%</span>
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                        <Input placeholder="Description" value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} />
-                      </div>
+                  <div key={i} className="flex flex-col lg:grid lg:grid-cols-[1fr_64px_96px_80px_96px_96px_112px_40px] gap-2 bg-muted/20 p-3 lg:p-1 rounded-md border lg:border-none relative items-center">
+                    {/* Column 1: Product / Description */}
+                    <div className="w-full flex flex-col sm:flex-row gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full sm:w-10 p-0 justify-center shrink-0" title="Select from Catalog">
+                            <Package className="h-4 w-4" />
+                            <span className="sm:hidden ml-2">Catalog...</span>
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[300px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search services/products..." />
+                            <CommandList>
+                              <CommandEmpty>No products found.</CommandEmpty>
+                              <CommandGroup>
+                                {products.map((product) => (
+                                  <CommandItem
+                                    key={product.id}
+                                    value={product.name}
+                                    onSelect={() => handleSelectProduct(i, product)}
+                                  >
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{product.name}</span>
+                                      <span className="text-xs text-muted-foreground">₹{product.rate} | GST: {product.gst_rate}%</span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <Input placeholder="Description" value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} className="w-full" />
                     </div>
-                    <div className="flex flex-wrap sm:flex-nowrap gap-2 items-end">
-                      <div className="w-16">
-                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Qty</Label>
-                        <Input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(i, "quantity", parseFloat(e.target.value) || 0)} />
-                      </div>
-                      <div className="w-24">
-                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">MRP</Label>
-                        <Input type="number" step="0.01" placeholder="MRP" value={item.mrp} onChange={(e) => updateItem(i, "mrp", parseFloat(e.target.value) || 0)} />
-                      </div>
-                      <div className="w-20">
-                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Disc %</Label>
-                        <Input type="number" step="0.1" placeholder="Disc %" value={item.discount} onChange={(e) => updateItem(i, "discount", parseFloat(e.target.value) || 0)} />
-                      </div>
-                      <div className="w-24">
-                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Net Rate</Label>
-                        <Input type="number" step="0.01" placeholder="Rate" value={item.rate} onChange={(e) => updateItem(i, "rate", parseFloat(e.target.value) || 0)} />
-                      </div>
-                      <div className="w-24">
-                        <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">GST</Label>
-                        <Select value={String(item.gst)} onValueChange={(v) => updateItem(i, "gst", parseFloat(v))}>
-                          <SelectTrigger className="h-10 bg-background w-full"><SelectValue placeholder="GST" /></SelectTrigger>
-                          <SelectContent>
-                            {[0, 5, 12, 18, 28].map(rate => <SelectItem key={rate} value={String(rate)}>{rate}%</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
+
+                    {/* Column 2: Qty */}
+                    <div className="w-full">
+                      <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Qty</Label>
+                      <Input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(i, "quantity", parseFloat(e.target.value) || 0)} className="w-full text-center" />
                     </div>
-                    <div className="flex items-center justify-between lg:justify-end mt-2 lg:mt-0">
+
+                    {/* Column 3: MRP */}
+                    <div className="w-full">
+                      <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">MRP</Label>
+                      <Input type="number" step="0.01" placeholder="MRP" value={item.mrp} onChange={(e) => updateItem(i, "mrp", parseFloat(e.target.value) || 0)} className="w-full text-center" />
+                    </div>
+
+                    {/* Column 4: Disc % */}
+                    <div className="w-full">
+                      <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Disc %</Label>
+                      <Input type="number" step="0.1" placeholder="Disc %" value={item.discount} onChange={(e) => updateItem(i, "discount", parseFloat(e.target.value) || 0)} className="w-full text-center" />
+                    </div>
+
+                    {/* Column 5: Net Rate */}
+                    <div className="w-full">
+                      <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">Net Rate</Label>
+                      <Input type="number" step="0.01" placeholder="Rate" value={item.rate} onChange={(e) => updateItem(i, "rate", parseFloat(e.target.value) || 0)} className="w-full text-center" />
+                    </div>
+
+                    {/* Column 6: GST */}
+                    <div className="w-full">
+                      <Label className="text-[10px] text-muted-foreground uppercase lg:hidden">GST</Label>
+                      <Select value={String(item.gst)} onValueChange={(v) => updateItem(i, "gst", parseFloat(v))}>
+                        <SelectTrigger className="h-10 bg-background w-full"><SelectValue placeholder="GST" /></SelectTrigger>
+                        <SelectContent>
+                          {[0, 5, 12, 18, 28].map(rate => <SelectItem key={rate} value={String(rate)}>{rate}%</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Column 7: Amount */}
+                    <div className="w-full flex items-center justify-between lg:justify-end mt-2 lg:mt-0">
                       <span className="lg:hidden text-sm text-muted-foreground mr-2">Amount:</span>
-                      <div className="w-28 text-right font-medium">{getCurrencySymbol(form.currency)}{(item.quantity * item.rate * (1 + item.gst / 100)).toFixed(2)}</div>
-                      <div className="w-10 flex justify-end">
-                        {form.items.length > 1 && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => removeItem(i)}><X className="h-4 w-4" /></Button>}
-                      </div>
+                      <div className="text-right font-medium lg:w-full">{getCurrencySymbol(form.currency)}{(item.quantity * item.rate * (1 + item.gst / 100)).toFixed(2)}</div>
+                    </div>
+
+                    {/* Column 8: Remove */}
+                    <div className="w-full flex justify-end mt-2 lg:mt-0">
+                      {form.items.length > 1 && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => removeItem(i)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -806,10 +1168,6 @@ export default function Invoices() {
                   <span>Paid Amount</span>
                   <span>{getCurrencySymbol(form.currency)}{form.paid_amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                 </div>
-                <div className="flex justify-between text-lg font-bold text-destructive pt-1 border-t border-dashed mt-1">
-                  <span>Balance Due</span>
-                  <span>{getCurrencySymbol(form.currency)}{(getTotal(form.items, form.discount_percentage) - form.paid_amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-                </div>
               </div>
 
             </div>
@@ -823,14 +1181,16 @@ export default function Invoices() {
 
       {/* Invoice Preview Dialog */}
       <Dialog open={!!preview} onOpenChange={() => setPreview(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader className="flex flex-row items-center justify-between print:hidden">
+        <DialogContent className="max-w-[95vw] md:max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[95vh] overflow-y-auto">
+          <DialogHeader className="flex flex-row items-center justify-between print:hidden border-b pb-4">
             <DialogTitle>Invoice Preview</DialogTitle>
             <DialogDescription className="sr-only">Invoice Preview Details</DialogDescription>
-            <Button variant="outline" size="sm" onClick={handlePrint} className="print:hidden">Print Invoice</Button>
+            <Button variant="outline" size="sm" onClick={handlePrint} className="print:hidden">
+              <Printer className="mr-2 h-4 w-4" /> Print Invoice
+            </Button>
           </DialogHeader>
           {preview && (
-            <div className="relative space-y-6 p-8 border rounded-lg bg-background print:border-0 print:p-0" id="print-area">
+            <div className="relative space-y-6 p-8 border rounded-lg bg-background print:border-0 print:p-0 font-sans" id="print-area">
               {/* Background Watermark */}
               {(preview.include_background !== false && profile?.background_logo_url?.trim()) && (
                 <div
@@ -841,132 +1201,320 @@ export default function Invoices() {
                 </div>
               )}
 
-              <div className="relative z-10 flex justify-between items-start border-b pb-6">
-                <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-primary">TAX INVOICE</h2>
-                  <p className="text-lg font-mono mt-1">{preview.invoice_number}</p>
-                </div>
-                <div className="text-right">
-                  <Badge variant={statusColor(preview.status)} className="mb-2 capitalize">{preview.status}</Badge>
-                  {preview.payment_reference && (
-                    <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mb-1">
-                      Ref: {preview.payment_reference}
+              {/* Copy Label */}
+              <div className="relative z-10 text-right text-[10px] text-slate-500 font-sans italic tracking-wide pb-1">
+                Original for recipient
+              </div>
+
+              {/* Paytm Style Bordered Header Box */}
+              <div className="relative z-10 border border-slate-700 text-slate-800 text-left font-sans rounded-sm overflow-hidden bg-white shadow-sm">
+                {/* 1. Seller Info Header */}
+                <div className="p-4 text-center border-b border-slate-700 bg-slate-50/50">
+                  <h1 className="text-xl font-black uppercase tracking-wider text-slate-900">
+                    {getCompanyName(profile?.company_name)}
+                  </h1>
+                  {getCompanyName(profile?.company_name).toLowerCase().includes("infotech") && (
+                    <p className="text-[10px] text-slate-500 font-bold italic tracking-wide mt-0.5">
+                      (ZenJourney Infotech is operated by ZenJourney Private Limited)
                     </p>
                   )}
-                  <p className="text-sm text-muted-foreground">Date: {format(new Date(preview.date), "MMM d, yyyy")}</p>
-                  <p className="text-sm text-muted-foreground font-medium">Due: {format(new Date(preview.due_date), "MMM d, yyyy")}</p>
+                  <p className="text-xs mt-1 text-slate-600 whitespace-pre-line leading-relaxed">
+                    {cleanAddress(profile?.address)}
+                  </p>
                 </div>
-              </div>
 
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-8 print:grid-cols-2">
-                <div>
-                  <h3 className="font-semibold text-muted-foreground mb-2">Billed To:</h3>
-                  <div className="space-y-1">
-                    <p className="font-bold text-lg">{preview.client_name}</p>
-                    {preview.client_address && <p className="text-muted-foreground whitespace-pre-wrap">{preview.client_address}</p>}
-                    <div className="text-sm text-muted-foreground mt-1">
-                      {preview.client_email && <p>{preview.client_email}</p>}
-                      {preview.client_phone && <p>{preview.client_phone}</p>}
+                {/* 2. Document title & dates grid */}
+                <div className="grid grid-cols-3 border-b border-slate-700 text-xs">
+                  <div className="col-span-2 p-3 border-r border-slate-700 flex items-center justify-center bg-slate-50/80 font-black tracking-widest text-sm text-[#1e3a8a] uppercase">
+                    TAX INVOICE
+                  </div>
+                  <div className="p-3 space-y-1 font-medium text-slate-700">
+                    <div className="flex justify-between"><span>Invoice No:</span> <span className="font-bold text-slate-900 font-mono">{preview.invoice_number}</span></div>
+                    <div className="flex justify-between"><span>Place Of Supply:</span> <span className="font-bold text-slate-900 uppercase">{getPlaceOfSupply(preview.client_gstin, preview.client_address)}</span></div>
+                    <div className="flex justify-between"><span>Invoice Date:</span> <span className="font-bold text-slate-900">{format(new Date(preview.date), "dd.MM.yyyy")}</span></div>
+                    <div className="flex justify-between"><span>Due Date:</span> <span className="font-bold text-slate-900">{format(new Date(preview.due_date), "dd.MM.yyyy")}</span></div>
+                  </div>
+                </div>
+
+                {/* 3. Bill To vs From Details */}
+                <div className="grid grid-cols-2 text-xs">
+                  {/* Left Column: Bill To */}
+                  <div className="p-3 border-r border-slate-700 space-y-1 text-left">
+                    <h3 className="font-extrabold border-b border-slate-200 pb-1 uppercase tracking-wider text-[10px] text-slate-400">Bill To</h3>
+                    <p className="font-black text-slate-800 text-sm mt-1">{preview.client_name}</p>
+                    <p className="text-slate-600 whitespace-pre-wrap leading-relaxed mt-0.5">{preview.client_address}</p>
+                    {preview.client_phone && <p className="text-slate-600 mt-1">Ph: {preview.client_phone}</p>}
+                    {preview.client_email && <p className="text-slate-600 mt-0.5">Email: {preview.client_email}</p>}
+                    
+                    <div className="pt-1.5 space-y-0.5 text-slate-700 font-medium">
+                      {preview.client_num && <div><span className="text-slate-400">Client ID:</span> <span className="font-bold font-mono">{preview.client_num}</span></div>}
+                      {preview.client_project_id && <div><span className="text-slate-400">Project ID:</span> <span className="font-bold font-mono">{preview.client_project_id}</span></div>}
+                      {preview.client_gstin && <div><span className="text-slate-400">GSTIN:</span> <span className="font-bold font-mono uppercase">{preview.client_gstin}</span></div>}
+                      {preview.client_msme_number && <div><span className="text-slate-400">MSME Number:</span> <span className="font-bold font-mono uppercase">{preview.client_msme_number}</span></div>}
                     </div>
-                    {(preview.client_gstin || preview.client_msme_number) && (
-                      <div className="text-sm mt-2">
-                        {preview.client_gstin && <p><span className="text-muted-foreground">GSTIN:</span> {preview.client_gstin}</p>}
-                        {preview.client_msme_number && <p><span className="text-muted-foreground">MSME:</span> {preview.client_msme_number}</p>}
-                      </div>
-                    )}
-                    {(preview.client_num || preview.client_project_id) && (
-                      <div className="text-xs text-muted-foreground mt-2 border-t pt-1 inline-block">
-                        {preview.client_num && <span className="mr-3">ID: {preview.client_num}</span>}
-                        {preview.client_project_id && <span>Project: {preview.client_project_id}</span>}
-                      </div>
-                    )}
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-bold uppercase text-muted-foreground mb-1">From</p>
-                  <p className="font-bold text-lg">{profile?.company_name || "Your Business Name"}</p>
-                  {profile?.gstin && <p className="text-sm text-muted-foreground">GSTIN: {profile.gstin}</p>}
-                  {profile?.address && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{profile.address}</p>}
+
+                  {/* Right Column: From */}
+                  <div className="p-3 space-y-1 text-left">
+                    <h3 className="font-extrabold border-b border-slate-200 pb-1 uppercase tracking-wider text-[10px] text-slate-400">From ({getCompanyName(profile?.company_name)})</h3>
+                    <p className="font-black text-slate-800 text-sm mt-1">{getCompanyName(profile?.company_name)}</p>
+                    <p className="text-slate-600 whitespace-pre-wrap leading-relaxed mt-0.5">{cleanAddress(profile?.address)}</p>
+                    
+                    <div className="pt-1.5 space-y-0.5 text-slate-700 font-medium">
+                      {profile?.gstin && profile.gstin !== "NIL" && <div><span className="text-slate-400">GSTIN/ISD:</span> <span className="font-bold font-mono uppercase">{profile.gstin}</span></div>}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <Table className="relative z-10">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">MRP</TableHead>
-                    <TableHead className="text-right">Disc (%)</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead className="text-right">GST</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(preview.invoice_items || []).map((item, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium">{item.description}</TableCell>
-                      <TableCell className="text-right">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{getCurrencySymbol(preview.currency)}{Number(item.mrp || 0).toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{Number(item.discount || 0).toFixed(1)}%</TableCell>
-                      <TableCell className="text-right">{getCurrencySymbol(preview.currency)}{Number(item.rate).toFixed(2)}</TableCell>
-                      <TableCell className="text-right text-xs">{(item.gst || 0)}%</TableCell>
-                      <TableCell className="text-right font-bold">{getCurrencySymbol(preview.currency)}{(Number(item.quantity) * Number(item.rate) * (1 + (item.gst || 0) / 100)).toFixed(2)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              {/* Main Items Table */}
+              <div className="relative z-10 overflow-x-auto border border-slate-200 rounded-sm">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#1e3a8a] text-white uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-12">S.No</th>
+                      <th className="py-2.5 px-3 font-bold border-r border-slate-300">Item Description</th>
+                      <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-20">HSN/SAC</th>
+                      <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-16">Qty UoM</th>
+                      <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">Price ({getCurrencySymbol(preview.currency)})</th>
+                      <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">Taxable Val ({getCurrencySymbol(preview.currency)})</th>
+                      <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">CGST ({getCurrencySymbol(preview.currency)})</th>
+                      <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">SGST ({getCurrencySymbol(preview.currency)})</th>
+                      <th className="py-2.5 px-3 text-right font-bold w-28">Amount ({getCurrencySymbol(preview.currency)})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(preview.invoice_items || []).map((item, i) => {
+                      const qty = Number(item.quantity || 0);
+                      const rate = Number(item.rate || 0);
+                      const gstRate = Number(item.gst || 0);
+                      const taxable = qty * rate;
+                      const gstAmount = taxable * (gstRate / 100);
+                      const halfGstAmount = gstAmount / 2;
+                      const halfGstRate = gstRate / 2;
+                      const amount = taxable + gstAmount;
 
-              <div className="relative z-10 flex flex-col sm:flex-row justify-end pt-4 border-t print:flex-row">
-                <div className="w-full sm:w-64 space-y-2 print:w-64">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>{getCurrencySymbol(preview.currency)}{getSubtotal(preview.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                      const getHsnCode = (desc: string, prodId?: string | null) => {
+                        if (prodId) {
+                          const p = products.find(prod => prod.id === prodId);
+                          if (p?.hsn_sac_code) return p.hsn_sac_code;
+                        }
+                        return "9983";
+                      };
+                      const hsnCode = getHsnCode(item.description, item.product_id);
+
+                      return (
+                        <tr key={i} className="border-b border-slate-200 hover:bg-slate-50/50">
+                          <td className="py-2 px-2 text-center border-r border-slate-200">{i + 1}</td>
+                          <td className="py-2 px-3 border-r border-slate-200 font-medium leading-relaxed">
+                            {item.description}
+                          </td>
+                          <td className="py-2 px-2 text-center border-r border-slate-200 font-mono">{hsnCode}</td>
+                          <td className="py-2 px-2 text-center border-r border-slate-200 font-medium">{qty} NOS</td>
+                          <td className="py-2 px-2 text-right border-r border-slate-200">{rate.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right border-r border-slate-200">{taxable.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right border-r border-slate-200 text-[10px]">
+                            {halfGstAmount.toFixed(2)}
+                            <div className="text-[8px] text-slate-500 font-bold">{halfGstRate}%</div>
+                          </td>
+                          <td className="py-2 px-2 text-right border-r border-slate-200 text-[10px]">
+                            {halfGstAmount.toFixed(2)}
+                            <div className="text-[8px] text-slate-500 font-bold">{halfGstRate}%</div>
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-slate-900">{amount.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                    {/* Totals Summary Row */}
+                    {(() => {
+                      const items = preview.invoice_items || [];
+                      const subtotal = getSubtotal(items);
+                      const discountPercentage = preview.discount_percentage || 0;
+                      const discountedSubtotal = subtotal * (1 - discountPercentage / 100);
+                      const gstTotal = getGSTTotal(items, discountPercentage);
+                      const grandTotal = discountedSubtotal + gstTotal;
+
+                      // Display aggregate tax rates in table footer
+                      const avgGst = items.length > 0 ? (items.reduce((s, i) => s + (i.gst || 0), 0) / items.length) : 18;
+
+                      return (
+                        <>
+                          {discountPercentage > 0 ? (
+                            <>
+                              <tr className="bg-slate-50 font-bold border-t-2 border-slate-300">
+                                <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                                  Subtotal
+                                </td>
+                                <td className="py-2 px-2 text-right border-r border-slate-200">
+                                  {subtotal.toFixed(2)}
+                                </td>
+                                <td colSpan={2} className="border-r border-slate-200"></td>
+                                <td className="py-2 px-3 text-right text-slate-900">
+                                  {subtotal.toFixed(2)}
+                                </td>
+                              </tr>
+                              <tr className="bg-slate-50 font-bold border-t border-slate-200 text-red-600">
+                                <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                                  Discount ({discountPercentage}%)
+                                </td>
+                                <td className="py-2 px-2 text-right border-r border-slate-200">
+                                  -{(subtotal * (discountPercentage / 100)).toFixed(2)}
+                                </td>
+                                <td colSpan={2} className="border-r border-slate-200"></td>
+                                <td className="py-2 px-3 text-right font-bold">
+                                  -{(subtotal * (discountPercentage / 100)).toFixed(2)}
+                                </td>
+                              </tr>
+                            </>
+                          ) : null}
+                          <tr className={`${discountPercentage > 0 ? 'border-t border-slate-200' : 'border-t-2 border-slate-300'} bg-slate-50 font-bold`}>
+                            <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                              {discountPercentage > 0 ? "Total (Taxable Value) @" : "Total @"}{avgGst.toFixed(0)}%
+                            </td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200">
+                              {discountedSubtotal.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200">
+                              {(gstTotal / 2).toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200">
+                              {(gstTotal / 2).toFixed(2)}
+                            </td>
+                            <td className="py-2 px-3 text-right text-slate-900">
+                              {grandTotal.toFixed(2)}
+                            </td>
+                          </tr>
+                        </>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totals Summary Column */}
+              <div className="relative z-10 flex justify-end pt-4">
+                <div className="w-full sm:w-80 space-y-2">
+                  <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                    <span className="text-slate-500 font-semibold uppercase">Subtotal</span>
+                    <span className="font-bold text-slate-800">
+                      {getCurrencySymbol(preview.currency)}{" "}
+                      {getSubtotal(preview.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  {preview.discount_percentage && preview.discount_percentage > 0 ? (
-                    <div className="flex justify-between text-sm text-red-500 font-medium">
-                      <span className="text-muted-foreground">Discount ({preview.discount_percentage}%)</span>
-                      <span>-{getCurrencySymbol(preview.currency)}{(getSubtotal(preview.invoice_items) * (preview.discount_percentage / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+
+                  {preview.discount_percentage ? (
+                    <div className="flex justify-between items-center text-xs border-b pb-1 font-sans text-red-600 font-medium">
+                      <span>Discount ({preview.discount_percentage}%)</span>
+                      <span>
+                        -{getCurrencySymbol(preview.currency)}{" "}
+                        {(getSubtotal(preview.invoice_items) * (preview.discount_percentage / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   ) : null}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total Tax (GST)</span>
-                    <span>{getCurrencySymbol(preview.currency)}{getGSTTotal(preview.invoice_items, preview.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+
+                  <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                    <span className="text-slate-500 font-semibold uppercase">Total Taxable Value</span>
+                    <span className="font-bold text-slate-800">
+                      {getCurrencySymbol(preview.currency)}{" "}
+                      {(getSubtotal(preview.invoice_items) * (1 - (preview.discount_percentage || 0) / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-xl font-bold border-t pt-2">
-                    <span>Grand Total</span>
-                    <span className="text-primary">{getCurrencySymbol(preview.currency)}{getTotal(preview.invoice_items, preview.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+
+                  {getGSTTotal(preview.invoice_items, preview.discount_percentage) > 0 && (
+                    <>
+                      <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                        <span className="text-slate-500 font-semibold uppercase">CGST</span>
+                        <span className="font-bold text-slate-800">
+                          {getCurrencySymbol(preview.currency)}{" "}
+                          {(getGSTTotal(preview.invoice_items, preview.discount_percentage) / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                        <span className="text-slate-500 font-semibold uppercase">SGST</span>
+                        <span className="font-bold text-slate-800">
+                          {getCurrencySymbol(preview.currency)}{" "}
+                          {(getGSTTotal(preview.invoice_items, preview.discount_percentage) / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-between items-center text-sm border-b pb-2 font-sans font-bold">
+                    <span className="text-slate-900 uppercase">Grand Total</span>
+                    <span className="text-primary text-base">
+                      {getCurrencySymbol(preview.currency)}{" "}
+                      {getTotal(preview.invoice_items, preview.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#1e3a8a]/5 border border-[#1e3a8a]/10 p-3 rounded font-sans">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Total Value (in words)</span>
+                    <span className="font-extrabold text-[#1e3a8a] text-xs leading-relaxed">
+                      {getCurrencySymbol(preview.currency) === "₹" || preview.currency === "INR" ? "INR" : getCurrencySymbol(preview.currency)}{" "}
+                      {numberToWords(getTotal(preview.invoice_items, preview.discount_percentage))}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {preview.notes && (
-                <div className="relative z-10 mt-8 pt-6 border-t">
-                  <p className="text-xs font-bold uppercase text-muted-foreground mb-2">Notes</p>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{preview.notes}</p>
-                </div>
-              )}
-
-              {preview.include_signature !== false && (
-                <div className="relative z-10 mt-16 pt-8 flex justify-start items-end">
-                  <div className="text-center">
-                    <div className="w-48 border-b border-foreground mb-2"></div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">E-sign & Approval by</p>
-                    {profile?.signature_url?.trim() ? (
-                      <div className="flex justify-center mb-1">
-                        <img src={profile.signature_url} alt="Signature" className="h-12 object-contain mix-blend-multiply" />
-                      </div>
-                    ) : null}
-                    <p className="font-bold mt-1">{profile?.company_name || "Your Business Name"}</p>
-                    {(profile?.auth_person_name || profile?.auth_designation) && (
-                      <div className="mt-2 leading-tight">
-                        {profile?.auth_person_name && <p className="text-sm font-semibold">{profile.auth_person_name}</p>}
-                        {profile?.auth_designation && <p className="text-xs text-muted-foreground">{profile.auth_designation}</p>}
-                      </div>
+              {/* Paytm Style Bordered Footer Box */}
+              <div className="relative z-10 border border-slate-700 mt-6 text-xs text-slate-800 font-sans rounded-sm overflow-hidden bg-white shadow-sm">
+                <div className="grid grid-cols-2">
+                  {/* Left Column: Company Metadata */}
+                  <div className="p-3 border-r border-slate-700 space-y-1.5 text-slate-700 font-mono text-[11px] flex flex-col justify-center">
+                    {profile?.gstin && profile.gstin !== "NIL" && (
+                      <div className="flex"><span className="w-28 text-slate-400 font-sans">Company GSTIN</span> <span>: {profile.gstin}</span></div>
                     )}
+                    {profile?.pan && (
+                      <div className="flex"><span className="w-28 text-slate-400 font-sans">PAN</span> <span className="uppercase">: {profile.pan}</span></div>
+                    )}
+                    {profile?.cin && (
+                      <div className="flex"><span className="w-28 text-slate-400 font-sans">CIN</span> <span className="uppercase">: {profile.cin}</span></div>
+                    )}
+                    <div className="flex"><span className="w-28 text-slate-400 font-sans">Terms</span> <span>: {preview.notes || "ALL PAYMENTS ONLY BY NET TRANSFER"}</span></div>
                   </div>
+
+                  {/* Right Column: Authorized Signature */}
+                  {preview.include_signature !== false ? (
+                    <div className="p-3 text-center flex flex-col justify-between min-h-[100px]">
+                      <div className="font-bold text-slate-900 text-[11px]">FOR {profile?.company_name || "Your Business Name"}</div>
+                      {profile?.signature_url?.trim() ? (
+                        <div className="flex justify-center my-1">
+                          <img src={profile.signature_url} alt="Signature" className="h-10 object-contain mix-blend-multiply" />
+                        </div>
+                      ) : (
+                        <div className="h-10"></div>
+                      )}
+                      <div>
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Authorised Signatory</div>
+                        {profile?.auth_person_name && (
+                          <div className="text-[10px] text-slate-600 font-bold">{profile.auth_person_name}</div>
+                        )}
+                        {profile?.auth_designation && (
+                          <div className="text-[9px] text-slate-400 italic">{profile.auth_designation}</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-center flex items-center justify-center min-h-[100px] text-slate-400 italic">
+                      Signature Not Included
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Bottom Banner Info */}
+                <div className="border-t border-slate-700 p-3 bg-slate-50/50 text-[10px] text-slate-500 leading-relaxed text-center font-medium font-sans">
+                  <div className="font-bold text-slate-700">{profile?.company_name}</div>
+                  <div>Corporate Office: {cleanAddress(profile?.address)}</div>
+                  {profile?.phone || profile?.email || profile?.website ? (
+                    <div className="mt-0.5 space-x-3">
+                      {profile?.phone && <span>Ph No. {profile.phone}</span>}
+                      {profile?.email && <span>Email Id - {profile.email}</span>}
+                      {profile?.website && <span>Website - {profile.website}</span>}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -974,7 +1522,7 @@ export default function Invoices() {
 
       {/* Bulk Print Preview Dialog */}
       <Dialog open={!!bulkPreview} onOpenChange={() => setBulkPreview(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto print:overflow-visible">
+        <DialogContent className="max-w-[95vw] md:max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[95vh] overflow-y-auto print:overflow-visible">
           <DialogHeader className="space-y-4 pb-4 print:hidden border-b">
             <div className="flex flex-row items-center justify-between">
               <DialogTitle>Bulk Invoice Print Preview</DialogTitle>
@@ -1006,7 +1554,7 @@ export default function Invoices() {
               </div>
             </div>
           </DialogHeader>
-          <div id="print-area">
+          <div id="print-area" className="space-y-8">
             {bulkPreview && bulkPreview.map((inv, index) => (
               <div
                 key={inv.id}
@@ -1022,134 +1570,320 @@ export default function Invoices() {
                   </div>
                 )}
 
-                <div className="relative z-10 flex justify-between items-start border-b pb-6">
-                  <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-primary">TAX INVOICE</h2>
-                    <p className="text-lg font-mono mt-1">{inv.invoice_number}</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge variant={statusColor(inv.status)} className="mb-2 capitalize print:hidden">{inv.status}</Badge>
-                    {inv.payment_reference && (
-                      <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mb-1">
-                        Ref: {inv.payment_reference}
+                {/* Copy Label */}
+                <div className="relative z-10 text-right text-[10px] text-slate-500 font-sans italic tracking-wide pb-1">
+                  Original for recipient
+                </div>
+
+                {/* Paytm Style Bordered Header Box */}
+                <div className="relative z-10 border border-slate-700 text-slate-800 text-left font-sans rounded-sm overflow-hidden bg-white shadow-sm">
+                  {/* 1. Seller Info Header */}
+                  <div className="p-4 text-center border-b border-slate-700 bg-slate-50/50">
+                    <h1 className="text-xl font-black uppercase tracking-wider text-slate-900">
+                      {getCompanyName(profile?.company_name)}
+                    </h1>
+                    {getCompanyName(profile?.company_name).toLowerCase().includes("infotech") && (
+                      <p className="text-[10px] text-slate-500 font-bold italic tracking-wide mt-0.5">
+                        (ZenJourney Infotech is operated by ZenJourney Private Limited)
                       </p>
                     )}
-                    <p className="text-sm text-muted-foreground">Date: {format(new Date(inv.date), "MMM d, yyyy")}</p>
-                    <p className="text-sm text-muted-foreground font-medium">Due: {format(new Date(inv.due_date), "MMM d, yyyy")}</p>
+                    <p className="text-xs mt-1 text-slate-600 whitespace-pre-line leading-relaxed">
+                      {cleanAddress(profile?.address)}
+                    </p>
                   </div>
-                </div>
 
-                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-8 print:grid-cols-2">
-                  <div>
-                    <h3 className="font-semibold text-muted-foreground mb-2">Billed To:</h3>
-                    <div className="space-y-1">
-                      <p className="font-bold text-lg">{inv.client_name}</p>
-                      {inv.client_address && <p className="text-muted-foreground whitespace-pre-wrap">{inv.client_address}</p>}
-                      <div className="text-sm text-muted-foreground mt-1">
-                        {inv.client_email && <p>{inv.client_email}</p>}
-                        {inv.client_phone && <p>{inv.client_phone}</p>}
+                  {/* 2. Document title & dates grid */}
+                  <div className="grid grid-cols-3 border-b border-slate-700 text-xs">
+                    <div className="col-span-2 p-3 border-r border-slate-700 flex items-center justify-center bg-slate-50/80 font-black tracking-widest text-sm text-[#1e3a8a] uppercase">
+                      TAX INVOICE
+                    </div>
+                    <div className="p-3 space-y-1 font-medium text-slate-700">
+                      <div className="flex justify-between"><span>Invoice No:</span> <span className="font-bold text-slate-900 font-mono">{inv.invoice_number}</span></div>
+                      <div className="flex justify-between"><span>Place Of Supply:</span> <span className="font-bold text-slate-900 uppercase">{getPlaceOfSupply(inv.client_gstin, inv.client_address)}</span></div>
+                      <div className="flex justify-between"><span>Invoice Date:</span> <span className="font-bold text-slate-900">{format(new Date(inv.date), "dd.MM.yyyy")}</span></div>
+                      <div className="flex justify-between"><span>Due Date:</span> <span className="font-bold text-slate-900">{format(new Date(inv.due_date), "dd.MM.yyyy")}</span></div>
+                    </div>
+                  </div>
+
+                  {/* 3. Bill To vs From Details */}
+                  <div className="grid grid-cols-2 text-xs">
+                    {/* Left Column: Bill To */}
+                    <div className="p-3 border-r border-slate-700 space-y-1 text-left">
+                      <h3 className="font-extrabold border-b border-slate-200 pb-1 uppercase tracking-wider text-[10px] text-slate-400">Bill To</h3>
+                      <p className="font-black text-slate-800 text-sm mt-1">{inv.client_name}</p>
+                      <p className="text-slate-600 whitespace-pre-wrap leading-relaxed mt-0.5">{inv.client_address}</p>
+                      {inv.client_phone && <p className="text-slate-600 mt-1">Ph: {inv.client_phone}</p>}
+                      {inv.client_email && <p className="text-slate-600 mt-0.5">Email: {inv.client_email}</p>}
+                      
+                      <div className="pt-1.5 space-y-0.5 text-slate-700 font-medium">
+                        {inv.client_num && <div><span className="text-slate-400">Client ID:</span> <span className="font-bold font-mono">{inv.client_num}</span></div>}
+                        {inv.client_project_id && <div><span className="text-slate-400">Project ID:</span> <span className="font-bold font-mono">{inv.client_project_id}</span></div>}
+                        {inv.client_gstin && <div><span className="text-slate-400">GSTIN:</span> <span className="font-bold font-mono uppercase">{inv.client_gstin}</span></div>}
+                        {inv.client_msme_number && <div><span className="text-slate-400">MSME Number:</span> <span className="font-bold font-mono uppercase">{inv.client_msme_number}</span></div>}
                       </div>
-                      {(inv.client_gstin || inv.client_msme_number) && (
-                        <div className="text-sm mt-2">
-                          {inv.client_gstin && <p><span className="text-muted-foreground">GSTIN:</span> {inv.client_gstin}</p>}
-                          {inv.client_msme_number && <p><span className="text-muted-foreground">MSME:</span> {inv.client_msme_number}</p>}
-                        </div>
-                      )}
-                      {(inv.client_num || inv.client_project_id) && (
-                        <div className="text-xs text-muted-foreground mt-2 border-t pt-1 inline-block">
-                          {inv.client_num && <span className="mr-3">ID: {inv.client_num}</span>}
-                          {inv.client_project_id && <span>Project: {inv.client_project_id}</span>}
-                        </div>
-                      )}
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-bold uppercase text-muted-foreground mb-1">From</p>
-                    <p className="font-bold text-lg">{profile?.company_name || "Your Business Name"}</p>
-                    {profile?.gstin && <p className="text-sm text-muted-foreground">GSTIN: {profile.gstin}</p>}
-                    {profile?.address && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{profile.address}</p>}
+
+                    {/* Right Column: From */}
+                    <div className="p-3 space-y-1 text-left">
+                      <h3 className="font-extrabold border-b border-slate-200 pb-1 uppercase tracking-wider text-[10px] text-slate-400">From ({getCompanyName(profile?.company_name)})</h3>
+                      <p className="font-black text-slate-800 text-sm mt-1">{getCompanyName(profile?.company_name)}</p>
+                      <p className="text-slate-600 whitespace-pre-wrap leading-relaxed mt-0.5">{cleanAddress(profile?.address)}</p>
+                      
+                      <div className="pt-1.5 space-y-0.5 text-slate-700 font-medium">
+                        {profile?.gstin && profile.gstin !== "NIL" && <div><span className="text-slate-400">GSTIN/ISD:</span> <span className="font-bold font-mono uppercase">{profile.gstin}</span></div>}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <Table className="relative z-10">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Rate</TableHead>
-                      <TableHead className="text-right">GST</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(inv.invoice_items || []).map((item, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-medium">{item.description}</TableCell>
-                        <TableCell className="text-right">{item.quantity}</TableCell>
-                        <TableCell className="text-right">{getCurrencySymbol(inv.currency)}{Number(item.rate).toFixed(2)}</TableCell>
-                        <TableCell className="text-right text-xs">{(item.gst || 0)}%</TableCell>
-                        <TableCell className="text-right font-bold">{getCurrencySymbol(inv.currency)}{(Number(item.quantity) * Number(item.rate) * (1 + (item.gst || 0) / 100)).toFixed(2)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                {/* Main Items Table */}
+                <div className="relative z-10 overflow-x-auto border border-slate-200 rounded-sm">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#1e3a8a] text-white uppercase text-[10px] tracking-wider border-b border-slate-200">
+                        <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-12">S.No</th>
+                        <th className="py-2.5 px-3 font-bold border-r border-slate-300">Item Description</th>
+                        <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-20">HSN/SAC</th>
+                        <th className="py-2.5 px-2 text-center font-bold border-r border-slate-300 w-16">Qty UoM</th>
+                        <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">Price ({getCurrencySymbol(inv.currency)})</th>
+                        <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">Taxable Val ({getCurrencySymbol(inv.currency)})</th>
+                        <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">CGST ({getCurrencySymbol(inv.currency)})</th>
+                        <th className="py-2.5 px-2 text-right font-bold border-r border-slate-300 w-24">SGST ({getCurrencySymbol(inv.currency)})</th>
+                        <th className="py-2.5 px-3 text-right font-bold w-28">Amount ({getCurrencySymbol(inv.currency)})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(inv.invoice_items || []).map((item, i) => {
+                        const qty = Number(item.quantity || 0);
+                        const rate = Number(item.rate || 0);
+                        const gstRate = Number(item.gst || 0);
+                        const taxable = qty * rate;
+                        const gstAmount = taxable * (gstRate / 100);
+                        const halfGstAmount = gstAmount / 2;
+                        const halfGstRate = gstRate / 2;
+                        const amount = taxable + gstAmount;
 
-                <div className="relative z-10 flex flex-col sm:flex-row justify-end pt-4 border-t print:flex-row">
-                  <div className="w-full sm:w-64 space-y-2 print:w-64">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span>{getCurrencySymbol(inv.currency)}{getSubtotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        const getHsnCode = (desc: string, prodId?: string | null) => {
+                          if (prodId) {
+                            const p = products.find(prod => prod.id === prodId);
+                            if (p?.hsn_sac_code) return p.hsn_sac_code;
+                          }
+                          return "9983";
+                        };
+                        const hsnCode = getHsnCode(item.description, item.product_id);
+
+                        return (
+                          <tr key={i} className="border-b border-slate-200 hover:bg-slate-50/50">
+                            <td className="py-2 px-2 text-center border-r border-slate-200">{i + 1}</td>
+                            <td className="py-2 px-3 border-r border-slate-200 font-medium leading-relaxed">
+                              {item.description}
+                            </td>
+                            <td className="py-2 px-2 text-center border-r border-slate-200 font-mono">{hsnCode}</td>
+                            <td className="py-2 px-2 text-center border-r border-slate-200 font-medium">{qty} NOS</td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200">{rate.toFixed(2)}</td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200">{taxable.toFixed(2)}</td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200 text-[10px]">
+                              {halfGstAmount.toFixed(2)}
+                              <div className="text-[8px] text-slate-500 font-bold">{halfGstRate}%</div>
+                            </td>
+                            <td className="py-2 px-2 text-right border-r border-slate-200 text-[10px]">
+                              {halfGstAmount.toFixed(2)}
+                              <div className="text-[8px] text-slate-500 font-bold">{halfGstRate}%</div>
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold text-slate-900">{amount.toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                      {/* Totals Summary Row */}
+                      {(() => {
+                        const items = inv.invoice_items || [];
+                        const subtotal = getSubtotal(items);
+                        const discountPercentage = inv.discount_percentage || 0;
+                        const discountedSubtotal = subtotal * (1 - discountPercentage / 100);
+                        const gstTotal = getGSTTotal(items, discountPercentage);
+                        const grandTotal = discountedSubtotal + gstTotal;
+
+                        // Display aggregate tax rates in table footer
+                        const avgGst = items.length > 0 ? (items.reduce((s, i) => s + (i.gst || 0), 0) / items.length) : 18;
+
+                        return (
+                          <>
+                            {discountPercentage > 0 ? (
+                              <>
+                                <tr className="bg-slate-50 font-bold border-t-2 border-slate-300">
+                                  <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                                    Subtotal
+                                  </td>
+                                  <td className="py-2 px-2 text-right border-r border-slate-200">
+                                    {subtotal.toFixed(2)}
+                                  </td>
+                                  <td colSpan={2} className="border-r border-slate-200"></td>
+                                  <td className="py-2 px-3 text-right text-slate-900">
+                                    {subtotal.toFixed(2)}
+                                  </td>
+                                </tr>
+                                <tr className="bg-slate-50 font-bold border-t border-slate-200 text-red-600">
+                                  <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                                    Discount ({discountPercentage}%)
+                                  </td>
+                                  <td className="py-2 px-2 text-right border-r border-slate-200">
+                                    -{(subtotal * (discountPercentage / 100)).toFixed(2)}
+                                  </td>
+                                  <td colSpan={2} className="border-r border-slate-200"></td>
+                                  <td className="py-2 px-3 text-right font-bold">
+                                    -{(subtotal * (discountPercentage / 100)).toFixed(2)}
+                                  </td>
+                                </tr>
+                              </>
+                            ) : null}
+                            <tr className={`${discountPercentage > 0 ? 'border-t border-slate-200' : 'border-t-2 border-slate-300'} bg-slate-50 font-bold`}>
+                              <td colSpan={5} className="py-2 px-3 text-right border-r border-slate-200">
+                                {discountPercentage > 0 ? "Total (Taxable Value) @" : "Total @"}{avgGst.toFixed(0)}%
+                              </td>
+                              <td className="py-2 px-2 text-right border-r border-slate-200">
+                                {discountedSubtotal.toFixed(2)}
+                              </td>
+                              <td className="py-2 px-2 text-right border-r border-slate-200">
+                                {(gstTotal / 2).toFixed(2)}
+                              </td>
+                              <td className="py-2 px-2 text-right border-r border-slate-200">
+                                {(gstTotal / 2).toFixed(2)}
+                              </td>
+                              <td className="py-2 px-3 text-right text-slate-900">
+                                {grandTotal.toFixed(2)}
+                              </td>
+                            </tr>
+                          </>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Totals Summary Column */}
+                <div className="relative z-10 flex justify-end pt-4">
+                  <div className="w-full sm:w-80 space-y-2">
+                    <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                      <span className="text-slate-500 font-semibold uppercase">Subtotal</span>
+                      <span className="font-bold text-slate-800">
+                        {getCurrencySymbol(inv.currency)}{" "}
+                        {getSubtotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Tax (GST)</span>
-                      <span>{getCurrencySymbol(inv.currency)}{getGSTTotal(inv.invoice_items).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+
+                    {inv.discount_percentage ? (
+                      <div className="flex justify-between items-center text-xs border-b pb-1 font-sans text-red-600 font-medium">
+                        <span>Discount ({inv.discount_percentage}%)</span>
+                        <span>
+                          -{getCurrencySymbol(inv.currency)}{" "}
+                          {(getSubtotal(inv.invoice_items) * (inv.discount_percentage / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                      <span className="text-slate-500 font-semibold uppercase">Total Taxable Value</span>
+                      <span className="font-bold text-slate-800">
+                        {getCurrencySymbol(inv.currency)}{" "}
+                        {(getSubtotal(inv.invoice_items) * (1 - (inv.discount_percentage || 0) / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
-                    <div className="flex justify-between text-xl font-bold pt-3 border-t-2 border-primary mt-2">
-                      <span>Total Amount</span>
-                      <span className="text-primary">{getCurrencySymbol(inv.currency)}{getTotal(inv.invoice_items, inv.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    {(inv.paid_amount || 0) > 0 && (
+
+                    {getGSTTotal(inv.invoice_items, inv.discount_percentage) > 0 && (
                       <>
-                        <div className="flex justify-between text-sm text-emerald-600 font-medium pt-2">
-                          <span>Amount Paid</span>
-                          <span>{getCurrencySymbol(inv.currency)}{(inv.paid_amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                          <span className="text-slate-500 font-semibold uppercase">CGST</span>
+                          <span className="font-bold text-slate-800">
+                            {getCurrencySymbol(inv.currency)}{" "}
+                            {(getGSTTotal(inv.invoice_items, inv.discount_percentage) / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </span>
                         </div>
-                        <div className="flex justify-between text-lg font-bold text-destructive pt-2 border-t border-dashed mt-2">
-                          <span>Balance Due</span>
-                          <span>{getCurrencySymbol(inv.currency)}{(getTotal(inv.invoice_items, inv.discount_percentage) - (inv.paid_amount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                        <div className="flex justify-between items-center text-xs border-b pb-1 font-sans">
+                          <span className="text-slate-500 font-semibold uppercase">SGST</span>
+                          <span className="font-bold text-slate-800">
+                            {getCurrencySymbol(inv.currency)}{" "}
+                            {(getGSTTotal(inv.invoice_items, inv.discount_percentage) / 2).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </span>
                         </div>
                       </>
                     )}
+
+                    <div className="flex justify-between items-center text-sm border-b pb-2 font-sans font-bold">
+                      <span className="text-slate-900 uppercase">Grand Total</span>
+                      <span className="text-primary text-base">
+                        {getCurrencySymbol(inv.currency)}{" "}
+                        {getTotal(inv.invoice_items, inv.discount_percentage).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    <div className="bg-[#1e3a8a]/5 border border-[#1e3a8a]/10 p-3 rounded font-sans">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Total Value (in words)</span>
+                      <span className="font-extrabold text-[#1e3a8a] text-xs leading-relaxed">
+                        {getCurrencySymbol(inv.currency) === "₹" || inv.currency === "INR" ? "INR" : getCurrencySymbol(inv.currency)}{" "}
+                        {numberToWords(getTotal(inv.invoice_items, inv.discount_percentage))}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {inv.notes && (
-                  <div className="relative z-10 mt-8 pt-6 border-t">
-                    <p className="text-xs font-bold uppercase text-muted-foreground mb-2">Notes</p>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{inv.notes}</p>
-                  </div>
-                )}
-
-                {(bulkIncludeSignature && inv.include_signature !== false) && (
-                  <div className="relative z-10 mt-16 pt-8 flex justify-start items-end">
-                    <div className="text-center">
-                      <div className="w-48 border-b border-foreground mb-2"></div>
-                      <p className="text-sm font-medium text-muted-foreground mb-2">E-sign & Approval by</p>
-                      {profile?.signature_url?.trim() ? (
-                        <div className="flex justify-center mb-1">
-                          <img src={profile.signature_url} alt="Signature" className="h-12 object-contain mix-blend-multiply" />
-                        </div>
-                      ) : null}
-                      <p className="font-bold mt-1">{profile?.company_name || "Your Business Name"}</p>
-                      {(profile?.auth_person_name || profile?.auth_designation) && (
-                        <div className="mt-2 leading-tight">
-                          {profile?.auth_person_name && <p className="text-sm font-semibold">{profile.auth_person_name}</p>}
-                          {profile?.auth_designation && <p className="text-xs text-muted-foreground">{profile.auth_designation}</p>}
-                        </div>
+                {/* Paytm Style Bordered Footer Box */}
+                <div className="relative z-10 border border-slate-700 mt-6 text-xs text-slate-800 font-sans rounded-sm overflow-hidden bg-white shadow-sm">
+                  <div className="grid grid-cols-2">
+                    {/* Left Column: Company Metadata */}
+                    <div className="p-3 border-r border-slate-700 space-y-1.5 text-slate-700 font-mono text-[11px] flex flex-col justify-center">
+                      {profile?.gstin && profile.gstin !== "NIL" && (
+                        <div className="flex"><span className="w-28 text-slate-400 font-sans">Company GSTIN</span> <span>: {profile.gstin}</span></div>
                       )}
+                      {profile?.pan && (
+                        <div className="flex"><span className="w-28 text-slate-400 font-sans">PAN</span> <span className="uppercase">: {profile.pan}</span></div>
+                      )}
+                      {profile?.cin && (
+                        <div className="flex"><span className="w-28 text-slate-400 font-sans">CIN</span> <span className="uppercase">: {profile.cin}</span></div>
+                      )}
+                      <div className="flex"><span className="w-28 text-slate-400 font-sans">Terms</span> <span>: {inv.notes || "ALL PAYMENTS ONLY BY NET TRANSFER"}</span></div>
                     </div>
+
+                    {/* Right Column: Authorized Signature */}
+                    {(bulkIncludeSignature && inv.include_signature !== false) ? (
+                      <div className="p-3 text-center flex flex-col justify-between min-h-[100px]">
+                        <div className="font-bold text-slate-900 text-[11px]">FOR {profile?.company_name || "Your Business Name"}</div>
+                        {profile?.signature_url?.trim() ? (
+                          <div className="flex justify-center my-1">
+                            <img src={profile.signature_url} alt="Signature" className="h-10 object-contain mix-blend-multiply" />
+                          </div>
+                        ) : (
+                          <div className="h-10"></div>
+                        )}
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Authorised Signatory</div>
+                          {profile?.auth_person_name && (
+                            <div className="text-[10px] text-slate-600 font-bold">{profile.auth_person_name}</div>
+                          )}
+                          {profile?.auth_designation && (
+                            <div className="text-[9px] text-slate-400 italic">{profile.auth_designation}</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 text-center flex items-center justify-center min-h-[100px] text-slate-400 italic">
+                        Signature Not Included
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* Bottom Banner Info */}
+                  <div className="border-t border-slate-700 p-3 bg-slate-50/50 text-[10px] text-slate-500 leading-relaxed text-center font-medium font-sans">
+                    <div className="font-bold text-slate-700">{profile?.company_name}</div>
+                    <div>Corporate Office: {cleanAddress(profile?.address)}</div>
+                    {profile?.phone || profile?.email || profile?.website ? (
+                      <div className="mt-0.5 space-x-3">
+                        {profile?.phone && <span>Ph No. {profile.phone}</span>}
+                        {profile?.email && <span>Email Id - {profile.email}</span>}
+                        {profile?.website && <span>Website - {profile.website}</span>}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
