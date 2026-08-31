@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download } from "lucide-react";
 import { toast } from "sonner";
 
 type LeadTrackingRecord = {
@@ -37,6 +37,7 @@ export default function LeadTracking() {
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [metaModalOpen, setMetaModalOpen] = useState(false);
+    const [sheetModalOpen, setSheetModalOpen] = useState(false);
     const [copiedUrl, setCopiedUrl] = useState(false);
     const [copiedToken, setCopiedToken] = useState(false);
 
@@ -45,13 +46,17 @@ export default function LeadTracking() {
 
     // Meta Ads Config State
     const [metaForm, setMetaForm] = useState({
-        page_id: "",
-        page_name: "",
-        page_access_token: "",
+        page_id: "1104650452121764",
+        page_name: "ZenJourney Official Meta Ads Page",
+        page_access_token: "EAAkFBp3ZAKPsBSXH4mmBaKNUP4k2C5ZBDf0qjtThDo79gE9z3srkiZBVzQ1AezU8wvLfXVVME0pF7DZC3VMDvuYQeT2x0TFZATbYk5NZAfhTBFshqqOL4lSHE6R9Ls9einGHJk6ffT4DJ79WykT8JnZCbGLAChkcw4PdGedWD8418S2FNAxbMZAJQjUkC3GKywkNCwZDZD",
         verify_token: "zenjourney_meta_lead_verify_token_2026"
     });
     const [metaTestLeadId, setMetaTestLeadId] = useState("");
     const [isTestingLead, setIsTestingLead] = useState(false);
+
+    // Google Sheets Import State
+    const [sheetUrl, setSheetUrl] = useState("https://docs.google.com/spreadsheets/d/152MTeyvxbjTCj4-tOpGTTPrWm-M31kHclkqy-hwEFWU/edit?usp=sharing");
+    const [isSyncingSheet, setIsSyncingSheet] = useState(false);
 
     const webhookEndpoint = "https://mtxmbjuqttztdsadkigl.supabase.co/functions/v1/facebook-lead-webhook";
 
@@ -100,8 +105,8 @@ export default function LeadTracking() {
             if (error) return null;
             if (data) {
                 setMetaForm({
-                    page_id: data.page_id || "",
-                    page_name: data.page_name || "",
+                    page_id: data.page_id || "1104650452121764",
+                    page_name: data.page_name || "ZenJourney Official Meta Ads Page",
                     page_access_token: data.page_access_token || "",
                     verify_token: data.verify_token || "zenjourney_meta_lead_verify_token_2026"
                 });
@@ -210,6 +215,74 @@ export default function LeadTracking() {
             toast.error(err.message || "Error importing Meta lead");
         } finally {
             setIsTestingLead(false);
+        }
+    };
+
+    const handleSyncGoogleSheet = async () => {
+        if (!sheetUrl) {
+            toast.error("Please enter a valid Google Sheets URL");
+            return;
+        }
+        setIsSyncingSheet(true);
+        try {
+            let csvUrl = sheetUrl;
+            if (sheetUrl.includes("/edit")) {
+                csvUrl = sheetUrl.replace(/\/edit.*$/, "/export?format=csv");
+            } else if (!sheetUrl.endsWith("/export?format=csv")) {
+                csvUrl = sheetUrl + "/export?format=csv";
+            }
+
+            const res = await fetch(csvUrl);
+            const text = await res.text();
+
+            const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+            if (lines.length <= 1) {
+                toast.error("Google Sheet appears empty or unreadable. Ensure link sharing is set to 'Anyone with link can view'.");
+                setIsSyncingSheet(false);
+                return;
+            }
+
+            const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim().toLowerCase());
+            const rows = lines.slice(1);
+
+            let insertedCount = 0;
+            for (const rowStr of rows) {
+                const rowValues = rowStr.split(",").map(v => v.replace(/^"|"$/g, "").trim());
+                const rowObj: Record<string, string> = {};
+                headers.forEach((h, i) => { rowObj[h] = rowValues[i] || ""; });
+
+                const leadName = rowObj["full_name"] || rowObj["lead_name"] || rowObj["name"] || "Imported Lead";
+                const email = rowObj["email"] || rowObj["gmail"] || null;
+                const phone = rowObj["phone_number"] || rowObj["phone"] || null;
+                const adName = rowObj["ad_name"] || rowObj["campaign_name"] || "";
+                const formName = rowObj["form_name"] || rowObj["service_interested"] || "Google Sheet Import";
+                const leadId = rowObj["id"] || rowObj["lead_id"] || "";
+
+                const payload = {
+                    user_id: user?.id,
+                    lead_name: leadName,
+                    phone: phone,
+                    gmail: email,
+                    service_interested: formName + (adName ? ` (${adName})` : ""),
+                    notes: `Imported from Google Sheet (Lead ID: ${leadId}, Platform: ${rowObj["platform"] || 'Google Sheet'})`,
+                    lead_status: "new",
+                    probability: 60,
+                    value: 0,
+                    outstanding_value: 0,
+                    first_contact_date: rowObj["created_time"] ? rowObj["created_time"].split("T")[0] : new Date().toISOString().split("T")[0],
+                };
+
+                const { error: insErr } = await supabase.from("lead_tracking").insert([payload]);
+                if (!insErr) insertedCount++;
+            }
+
+            queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
+            toast.success(`Successfully imported ${insertedCount} lead(s) from Google Sheet!`);
+            setSheetModalOpen(false);
+        } catch (err: any) {
+            toast.error(err.message || "Error syncing Google Sheet");
+        } finally {
+            setIsSyncingSheet(false);
         }
     };
 
@@ -340,11 +413,14 @@ export default function LeadTracking() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Lead Tracking</h1>
-                    <p className="text-sm text-muted-foreground">Track prospective sales leads, automated Meta Ads lead ingestion, follow-ups, and deal values.</p>
+                    <p className="text-sm text-muted-foreground">Track prospective sales leads, automated Meta Ads lead ingestion, Google Sheets sync, follow-ups, and deal values.</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Button variant="outline" onClick={() => setSheetModalOpen(true)} className="gap-2 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50">
+                        <FileSpreadsheet className="h-4 w-4 text-emerald-500" /> Google Sheets Sync
+                    </Button>
                     <Button variant="outline" onClick={() => setMetaModalOpen(true)} className="gap-2 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50">
-                        <Zap className="h-4 w-4 text-blue-500 fill-blue-500" /> Meta Ads Manager Auto-Leads
+                        <Zap className="h-4 w-4 text-blue-500 fill-blue-500" /> Meta Ads Auto-Leads
                     </Button>
                     <Button onClick={() => handleOpen()} className="gap-2 shadow-sm">
                         <Plus className="h-4 w-4" /> Add Lead
@@ -438,7 +514,7 @@ export default function LeadTracking() {
                                 ) : filteredRecords.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                                            No lead tracking records found. Click "Add Lead" or configure Meta Ads Integration to get auto-leads.
+                                            No lead tracking records found. Click "Add Lead" or import from Google Sheets / Meta Ads.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -466,7 +542,11 @@ export default function LeadTracking() {
                                             <TableCell className="text-xs max-w-[200px] truncate" title={r.notes || ""}>
                                                 {r.notes?.includes("Meta") ? (
                                                     <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300">
-                                                        <Zap className="h-3 w-3 mr-1 fill-blue-500 text-blue-500" /> Meta Ads Auto
+                                                        <Zap className="h-3 w-3 mr-1 fill-blue-500 text-blue-500" /> Meta Ads
+                                                    </Badge>
+                                                ) : r.notes?.includes("Google Sheet") ? (
+                                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
+                                                        <FileSpreadsheet className="h-3 w-3 mr-1 text-emerald-600" /> Google Sheet
                                                     </Badge>
                                                 ) : (
                                                     r.notes || "-"
@@ -496,6 +576,41 @@ export default function LeadTracking() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Google Sheets Sync Dialog */}
+            <Dialog open={sheetModalOpen} onOpenChange={setSheetModalOpen}>
+                <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
+                            Import Leads from Google Sheets
+                        </DialogTitle>
+                        <DialogDescription>
+                            Paste the link to your public Google Sheet to import lead forms directly into your Lead Tracking database.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold">Google Sheets Link</Label>
+                            <Input
+                                placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing"
+                                value={sheetUrl}
+                                onChange={(e) => setSheetUrl(e.target.value)}
+                            />
+                            <p className="text-[11px] text-muted-foreground">Make sure link sharing is set to <strong>"Anyone with the link can view"</strong>.</p>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSheetModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleSyncGoogleSheet} disabled={!sheetUrl || isSyncingSheet} className="bg-emerald-600 hover:bg-emerald-700">
+                            {isSyncingSheet && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Sync & Import Leads
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Meta Lead Ads Webhook Setup Dialog */}
             <Dialog open={metaModalOpen} onOpenChange={setMetaModalOpen}>
@@ -570,9 +685,9 @@ export default function LeadTracking() {
                             <CardContent className="space-y-3">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div className="space-y-1">
-                                        <Label className="text-xs font-semibold">Facebook Page ID</Label>
+                                        <Label className="text-xs font-semibold">Facebook Page / Dataset ID</Label>
                                         <Input
-                                            placeholder="e.g. 102938475610"
+                                            placeholder="e.g. 1104650452121764"
                                             value={metaForm.page_id}
                                             onChange={(e) => setMetaForm({ ...metaForm, page_id: e.target.value })}
                                         />
@@ -590,7 +705,7 @@ export default function LeadTracking() {
                                 <div className="space-y-1">
                                     <Label className="text-xs font-semibold">Facebook Page Access Token</Label>
                                     <Textarea
-                                        placeholder="Paste Meta Page Access Token (EAAB...)"
+                                        placeholder="Paste Meta Page Access Token (EAAk...)"
                                         value={metaForm.page_access_token}
                                         onChange={(e) => setMetaForm({ ...metaForm, page_access_token: e.target.value })}
                                         rows={2}
