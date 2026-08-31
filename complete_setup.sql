@@ -412,6 +412,54 @@ ALTER TABLE public.document_folders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.document_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shareholders ENABLE ROW LEVEL SECURITY;
 
+-- 19. CLIENT TRACKING & LEAD TRACKING TABLES
+CREATE TABLE IF NOT EXISTS public.client_tracking (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    client_id_code TEXT UNIQUE NOT NULL DEFAULT ('CLI-' || UPPER(SUBSTRING(gen_random_uuid()::text FROM 1 FOR 6))),
+    client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
+    client_name TEXT NOT NULL,
+    company_name TEXT,
+    phone TEXT,
+    project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+    project_code TEXT,
+    service_type TEXT,
+    project_start_date DATE DEFAULT CURRENT_DATE,
+    project_end_date DATE,
+    deadline DATE,
+    project_status TEXT DEFAULT 'in_progress' CHECK (project_status IN ('planning', 'in_progress', 'on_hold', 'completed', 'cancelled')),
+    payment_status TEXT DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'partially_paid', 'paid', 'overdue')),
+    total_budget NUMERIC(15, 2) DEFAULT 0.00 NOT NULL,
+    amount_paid NUMERIC(15, 2) DEFAULT 0.00 NOT NULL,
+    balance NUMERIC(15, 2) GENERATED ALWAYS AS (total_budget - amount_paid) STORED,
+    last_contact_date DATE DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.lead_tracking (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    lead_id_code TEXT UNIQUE NOT NULL DEFAULT ('LEAD-' || UPPER(SUBSTRING(gen_random_uuid()::text FROM 1 FOR 6))),
+    lead_name TEXT NOT NULL,
+    phone TEXT,
+    gmail TEXT,
+    service_interested TEXT,
+    notes TEXT,
+    lead_status TEXT DEFAULT 'new' CHECK (lead_status IN ('new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'won', 'lost')),
+    next_follow_up_date DATE,
+    probability NUMERIC(5, 2) DEFAULT 0.00 CHECK (probability >= 0 AND probability <= 100),
+    quotation_no TEXT,
+    value NUMERIC(15, 2) DEFAULT 0.00 NOT NULL,
+    outstanding_value NUMERIC(15, 2) DEFAULT 0.00 NOT NULL,
+    first_contact_date DATE DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.client_tracking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lead_tracking ENABLE ROW LEVEL SECURITY;
+
 -- Helper macro to grant open policy
 DO $$ 
 DECLARE
@@ -437,6 +485,9 @@ CREATE INDEX IF NOT EXISTS idx_clients_user ON public.clients(user_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_user ON public.suppliers(user_id);
 CREATE INDEX IF NOT EXISTS idx_payouts_user ON public.vendor_payouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_shareholders_user ON public.shareholders(user_id);
+CREATE INDEX IF NOT EXISTS idx_client_tracking_user ON public.client_tracking(user_id);
+CREATE INDEX IF NOT EXISTS idx_lead_tracking_user ON public.lead_tracking(user_id);
 
 -- 21. RELOAD SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';
+
