@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 type LeadTrackingRecord = {
@@ -36,8 +36,24 @@ export default function LeadTracking() {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
+    const [metaModalOpen, setMetaModalOpen] = useState(false);
+    const [copiedUrl, setCopiedUrl] = useState(false);
+    const [copiedToken, setCopiedToken] = useState(false);
+
     const [editingRecord, setEditingRecord] = useState<LeadTrackingRecord | null>(null);
     const [search, setSearch] = useState("");
+
+    // Meta Ads Config State
+    const [metaForm, setMetaForm] = useState({
+        page_id: "",
+        page_name: "",
+        page_access_token: "",
+        verify_token: "zenjourney_meta_lead_verify_token_2026"
+    });
+    const [metaTestLeadId, setMetaTestLeadId] = useState("");
+    const [isTestingLead, setIsTestingLead] = useState(false);
+
+    const webhookEndpoint = "https://mtxmbjuqttztdsadkigl.supabase.co/functions/v1/facebook-lead-webhook";
 
     const [form, setForm] = useState({
         lead_name: "",
@@ -68,6 +84,129 @@ export default function LeadTracking() {
         },
         enabled: !!user,
     });
+
+    // Fetch Meta Lead Integration Config
+    const { data: metaConfig } = useQuery({
+        queryKey: ["facebook_lead_configs", user?.id],
+        queryFn: async () => {
+            if (!user) return null;
+            const { data, error } = await supabase
+                .from("facebook_lead_configs")
+                .select("*")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (error) return null;
+            if (data) {
+                setMetaForm({
+                    page_id: data.page_id || "",
+                    page_name: data.page_name || "",
+                    page_access_token: data.page_access_token || "",
+                    verify_token: data.verify_token || "zenjourney_meta_lead_verify_token_2026"
+                });
+            }
+            return data;
+        },
+        enabled: !!user,
+    });
+
+    const saveMetaConfigMutation = useMutation({
+        mutationFn: async () => {
+            if (!user) throw new Error("Unauthenticated");
+            const payload = {
+                user_id: user.id,
+                page_id: metaForm.page_id,
+                page_name: metaForm.page_name || "Facebook Ads Page",
+                page_access_token: metaForm.page_access_token,
+                verify_token: metaForm.verify_token,
+                is_active: true,
+            };
+
+            if (metaConfig?.id) {
+                const { error } = await supabase
+                    .from("facebook_lead_configs")
+                    .update(payload)
+                    .eq("id", metaConfig.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase
+                    .from("facebook_lead_configs")
+                    .insert([payload]);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["facebook_lead_configs"] });
+            toast.success("Meta Lead Ads Integration settings saved!");
+        },
+        onError: (err: any) => {
+            toast.error(err.message || "Failed to save Meta configuration");
+        }
+    });
+
+    const handleImportMetaLead = async () => {
+        if (!metaTestLeadId) {
+            toast.error("Please enter a Meta Leadgen ID");
+            return;
+        }
+        setIsTestingLead(true);
+        try {
+            const token = metaForm.page_access_token || metaConfig?.page_access_token;
+            if (!token) {
+                toast.error("Please enter and save your Facebook Page Access Token first.");
+                setIsTestingLead(false);
+                return;
+            }
+
+            const res = await fetch(`https://graph.facebook.com/v19.0/${metaTestLeadId}?access_token=${token}`);
+            const data = await res.json();
+
+            if (data.error) {
+                throw new Error(data.error.message || "Failed to fetch lead from Meta Graph API");
+            }
+
+            let leadName = "Meta Lead " + metaTestLeadId.slice(-4);
+            let phone = "";
+            let email = "";
+            let serviceInterested = "Facebook Lead Ads";
+
+            if (data.field_data) {
+                for (const f of data.field_data) {
+                    const fname = (f.name || "").toLowerCase();
+                    const val = Array.isArray(f.values) ? f.values[0] : f.values;
+                    if (fname.includes("name")) leadName = val;
+                    else if (fname.includes("email")) email = val;
+                    else if (fname.includes("phone")) phone = val;
+                    else if (fname.includes("service") || fname.includes("product")) serviceInterested = val;
+                }
+            }
+
+            const { error: insErr } = await supabase.from("lead_tracking").insert([{
+                user_id: user?.id,
+                lead_name: leadName,
+                phone: phone || null,
+                gmail: email || null,
+                service_interested: serviceInterested,
+                notes: `Imported directly from Meta Ads Manager (Leadgen ID: ${metaTestLeadId})`,
+                lead_status: "new",
+                probability: 60,
+                value: 0,
+                outstanding_value: 0,
+                first_contact_date: new Date().toISOString().split("T")[0],
+            }]);
+
+            if (insErr) throw insErr;
+
+            queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
+            toast.success(`Successfully imported Meta lead: ${leadName}`);
+            setMetaTestLeadId("");
+        } catch (err: any) {
+            toast.error(err.message || "Error importing Meta lead");
+        } finally {
+            setIsTestingLead(false);
+        }
+    };
 
     const saveMutation = useMutation({
         mutationFn: async () => {
@@ -171,7 +310,8 @@ export default function LeadTracking() {
         r.lead_name.toLowerCase().includes(search.toLowerCase()) ||
         (r.gmail && r.gmail.toLowerCase().includes(search.toLowerCase())) ||
         (r.lead_id_code && r.lead_id_code.toLowerCase().includes(search.toLowerCase())) ||
-        (r.service_interested && r.service_interested.toLowerCase().includes(search.toLowerCase()))
+        (r.service_interested && r.service_interested.toLowerCase().includes(search.toLowerCase())) ||
+        (r.notes && r.notes.toLowerCase().includes(search.toLowerCase()))
     );
 
     const totalPipelineValue = records.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
@@ -195,11 +335,16 @@ export default function LeadTracking() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Lead Tracking</h1>
-                    <p className="text-sm text-muted-foreground">Track prospective sales leads, follow-ups, win probability, and deal values.</p>
+                    <p className="text-sm text-muted-foreground">Track prospective sales leads, automated Meta Ads lead ingestion, follow-ups, and deal values.</p>
                 </div>
-                <Button onClick={() => handleOpen()} className="gap-2 shadow-sm">
-                    <Plus className="h-4 w-4" /> Add Lead
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setMetaModalOpen(true)} className="gap-2 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50">
+                        <Zap className="h-4 w-4 text-blue-500 fill-blue-500" /> Meta Ads Manager Auto-Leads
+                    </Button>
+                    <Button onClick={() => handleOpen()} className="gap-2 shadow-sm">
+                        <Plus className="h-4 w-4" /> Add Lead
+                    </Button>
+                </div>
             </div>
 
             {/* Metrics */}
@@ -271,7 +416,7 @@ export default function LeadTracking() {
                                     <TableHead>Service Interested</TableHead>
                                     <TableHead>Status & Probability</TableHead>
                                     <TableHead>Dates & Follow-up</TableHead>
-                                    <TableHead>Quotation No</TableHead>
+                                    <TableHead>Source / Notes</TableHead>
                                     <TableHead className="text-right">Deal Value</TableHead>
                                     <TableHead className="text-right">Outstanding</TableHead>
                                     <TableHead className="text-center w-[90px]">Actions</TableHead>
@@ -288,7 +433,7 @@ export default function LeadTracking() {
                                 ) : filteredRecords.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                                            No lead tracking records found. Click "Add Lead" to create one.
+                                            No lead tracking records found. Click "Add Lead" or configure Meta Ads Integration to get auto-leads.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -313,7 +458,15 @@ export default function LeadTracking() {
                                                     </div>
                                                 )}
                                             </TableCell>
-                                            <TableCell className="text-xs font-mono">{r.quotation_no || "-"}</TableCell>
+                                            <TableCell className="text-xs max-w-[200px] truncate" title={r.notes || ""}>
+                                                {r.notes?.includes("Meta") ? (
+                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300">
+                                                        <Zap className="h-3 w-3 mr-1 fill-blue-500 text-blue-500" /> Meta Ads Auto
+                                                    </Badge>
+                                                ) : (
+                                                    r.notes || "-"
+                                                )}
+                                            </TableCell>
                                             <TableCell className="text-right font-medium text-xs text-emerald-600">₹{Number(r.value).toLocaleString("en-IN")}</TableCell>
                                             <TableCell className="text-right font-semibold text-xs text-amber-600">₹{Number(r.outstanding_value).toLocaleString("en-IN")}</TableCell>
                                             <TableCell className="text-center">
@@ -339,7 +492,152 @@ export default function LeadTracking() {
                 </CardContent>
             </Card>
 
-            {/* Modal Dialog */}
+            {/* Meta Lead Ads Webhook Setup Dialog */}
+            <Dialog open={metaModalOpen} onOpenChange={setMetaModalOpen}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-lg">
+                            <Zap className="h-5 w-5 text-blue-600 fill-blue-600" />
+                            Meta Ads Manager Automated Lead Ingestion (`adsmanager.facebook.com`)
+                        </DialogTitle>
+                        <DialogDescription>
+                            Automatically capture leads generated from Facebook & Instagram Lead Ads directly into your Lead Tracking table in real-time.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        {/* Step 1: Webhook URL */}
+                        <div className="bg-slate-900 text-white p-4 rounded-lg space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs uppercase tracking-wider font-bold text-blue-400">Step 1: Copy Webhook Callback URL</Label>
+                                <Badge className="bg-blue-500/20 text-blue-300">Live Webhook</Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    readOnly
+                                    value={webhookEndpoint}
+                                    className="bg-slate-950 border-slate-800 text-xs font-mono text-slate-200"
+                                />
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(webhookEndpoint);
+                                        setCopiedUrl(true);
+                                        toast.success("Webhook URL copied to clipboard!");
+                                        setTimeout(() => setCopiedUrl(false), 2000);
+                                    }}
+                                >
+                                    {copiedUrl ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                                </Button>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1">
+                                <Label className="text-xs uppercase tracking-wider font-bold text-slate-400">Verify Token</Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    readOnly
+                                    value={metaForm.verify_token}
+                                    className="bg-slate-950 border-slate-800 text-xs font-mono text-slate-200"
+                                />
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(metaForm.verify_token);
+                                        setCopiedToken(true);
+                                        toast.success("Verify Token copied!");
+                                        setTimeout(() => setCopiedToken(false), 2000);
+                                    }}
+                                >
+                                    {copiedToken ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                                </Button>
+                            </div>
+                            <p className="text-[11px] text-slate-400">Paste these in <strong>Meta Developers Console &gt; Webhooks &gt; Leadgen</strong>.</p>
+                        </div>
+
+                        {/* Step 2: Page Credentials */}
+                        <Card className="border border-blue-500/20">
+                            <CardHeader className="py-3">
+                                <CardTitle className="text-xs uppercase font-bold tracking-wider text-muted-foreground">Step 2: Save Meta Page Access Token</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <Label className="text-xs font-semibold">Facebook Page ID</Label>
+                                        <Input
+                                            placeholder="e.g. 102938475610"
+                                            value={metaForm.page_id}
+                                            onChange={(e) => setMetaForm({ ...metaForm, page_id: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-xs font-semibold">Page Name (Optional)</Label>
+                                        <Input
+                                            placeholder="e.g. ZenJourney Official Page"
+                                            value={metaForm.page_name}
+                                            onChange={(e) => setMetaForm({ ...metaForm, page_name: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label className="text-xs font-semibold">Facebook Page Access Token</Label>
+                                    <Textarea
+                                        placeholder="Paste Meta Page Access Token (EAAB...)"
+                                        value={metaForm.page_access_token}
+                                        onChange={(e) => setMetaForm({ ...metaForm, page_access_token: e.target.value })}
+                                        rows={2}
+                                        className="font-mono text-xs"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">Required by Meta API to extract lead field details (Name, Phone, Email).</p>
+                                </div>
+
+                                <Button
+                                    onClick={() => saveMetaConfigMutation.mutate()}
+                                    disabled={!metaForm.page_id || !metaForm.page_access_token || saveMetaConfigMutation.isPending}
+                                    className="w-full"
+                                >
+                                    {saveMetaConfigMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Save Meta Integration Credentials
+                                </Button>
+                            </CardContent>
+                        </Card>
+
+                        {/* Step 3: Test Lead Import */}
+                        <Card>
+                            <CardHeader className="py-3">
+                                <CardTitle className="text-xs uppercase font-bold tracking-wider text-muted-foreground">Step 3: Manual Lead Import / Test ID</CardTitle>
+                                <CardDescription className="text-xs">Have a Lead ID from Ads Manager (`adsmanager.facebook.com`)? Enter it below to fetch and auto-import instantly.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <div className="flex gap-2">
+                                    <Input
+                                        placeholder="e.g. 109283746501"
+                                        value={metaTestLeadId}
+                                        onChange={(e) => setMetaTestLeadId(e.target.value)}
+                                        className="font-mono"
+                                    />
+                                    <Button
+                                        onClick={handleImportMetaLead}
+                                        disabled={!metaTestLeadId || isTestingLead}
+                                        variant="secondary"
+                                    >
+                                        {isTestingLead ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch & Import"}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setMetaModalOpen(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Manual Create / Edit Lead Modal */}
             <Dialog open={open} onOpenChange={handleClose}>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>

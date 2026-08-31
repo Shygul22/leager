@@ -484,8 +484,24 @@ CREATE TABLE IF NOT EXISTS public.lead_tracking (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS public.facebook_lead_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    page_id TEXT NOT NULL,
+    page_name TEXT,
+    page_access_token TEXT NOT NULL,
+    app_id TEXT,
+    app_secret TEXT,
+    verify_token TEXT DEFAULT 'zenjourney_meta_lead_verify_token_2026',
+    is_active BOOLEAN DEFAULT true,
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 ALTER TABLE public.client_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lead_tracking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.facebook_lead_configs ENABLE ROW LEVEL SECURITY;
 
 -- Helper macro to grant open policy
 DO $$ 
