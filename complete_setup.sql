@@ -440,10 +440,13 @@ ALTER TABLE public.document_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shareholders ENABLE ROW LEVEL SECURITY;
 
 -- 19. CLIENT TRACKING & LEAD TRACKING TABLES
+CREATE SEQUENCE IF NOT EXISTS public.lead_tracking_seq START WITH 1;
+CREATE SEQUENCE IF NOT EXISTS public.client_tracking_seq START WITH 1;
+
 CREATE TABLE IF NOT EXISTS public.client_tracking (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    client_id_code TEXT UNIQUE NOT NULL DEFAULT ('CLI-' || UPPER(SUBSTRING(gen_random_uuid()::text FROM 1 FOR 6))),
+    client_id_code TEXT UNIQUE NOT NULL DEFAULT ('ZJ-CLI-' || TO_CHAR(CURRENT_DATE, 'YYYY') || '-' || LPAD(nextval('public.client_tracking_seq')::text, 4, '0')),
     client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
     client_name TEXT NOT NULL,
     company_name TEXT,
@@ -467,7 +470,7 @@ CREATE TABLE IF NOT EXISTS public.client_tracking (
 CREATE TABLE IF NOT EXISTS public.lead_tracking (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    lead_id_code TEXT UNIQUE NOT NULL DEFAULT ('LEAD-' || UPPER(SUBSTRING(gen_random_uuid()::text FROM 1 FOR 6))),
+    lead_id_code TEXT UNIQUE NOT NULL DEFAULT ('ZJ-LEAD-' || TO_CHAR(CURRENT_DATE, 'YYYY') || '-' || LPAD(nextval('public.lead_tracking_seq')::text, 4, '0')),
     lead_name TEXT NOT NULL,
     phone TEXT,
     gmail TEXT,
