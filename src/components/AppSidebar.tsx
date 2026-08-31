@@ -1,4 +1,4 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserCheck, UserPlus } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -29,6 +29,8 @@ const adminItems = [
 const operationalItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["admin", "accounts_manager", "staff", "project_manager"] },
   { title: "Clients", url: "/clients", icon: Users, roles: ["admin", "project_manager"] },
+  { title: "Client Tracking", url: "/client-tracking", icon: UserCheck, roles: ["admin", "accounts_manager", "project_manager", "staff"] },
+  { title: "Lead Tracking", url: "/lead-tracking", icon: UserPlus, roles: ["admin", "accounts_manager", "project_manager", "staff"] },
   { title: "Service Catalog", url: "/products", icon: Package, roles: ["admin", "staff"] },
   { title: "Quotations", url: "/quotations", icon: FileText, roles: ["admin", "project_manager", "staff"] },
   { title: "Invoices", url: "/invoices", icon: FileText, roles: ["admin", "staff"] },
