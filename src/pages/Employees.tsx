@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import EntityDocumentsSection from "@/components/documents/EntityDocumentsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -571,6 +572,17 @@ export default function Employees() {
                                 </Table>
                             </div>
                         </div>
+
+                        {selectedEmployee && (
+                            <div className="pt-4 border-t border-slate-800">
+                                <EntityDocumentsSection 
+                                    entityId={selectedEmployee.id}
+                                    entityType="employee"
+                                    title="Employee Verification & KYC Documents"
+                                    description="Manage PAN, Aadhaar, Passport copies, and contracts for this employee."
+                                />
+                            </div>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>

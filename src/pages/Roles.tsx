@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { ShieldCheck, UserCog, Mail, Search, RefreshCcw, Plus, Trash2, Edit } from "lucide-react";
 import { toast } from "sonner";
+import { format, parseISO } from "date-fns";
 
 type Profile = {
     id: string;
@@ -19,6 +20,7 @@ type Profile = {
     role: string | null;
     company_name: string | null;
     full_name?: string | null;
+    last_login?: string | null;
 };
 
 const ROLES = [
@@ -77,8 +79,9 @@ export default function Roles() {
                 setNewPassword("");
                 refetch();
             }
-        } catch (err: any) {
-            toast.error(err.message);
+        } catch (err) {
+            const error = err as Error;
+            toast.error(error.message);
         } finally {
             setIsAdding(false);
         }
@@ -111,8 +114,9 @@ export default function Roles() {
             queryClient.invalidateQueries({ queryKey: ["all_profiles"] });
             toast.success("User role updated successfully");
         },
-        onError: (error: any) => {
-            toast.error(error.message || "Failed to update role");
+        onError: (error) => {
+            const err = error as Error;
+            toast.error(err.message || "Failed to update role");
         }
     });
 
@@ -135,8 +139,9 @@ export default function Roles() {
             toast.success("User profile updated successfully");
             setEditOpen(false);
         },
-        onError: (error: any) => {
-            toast.error(error.message || "Failed to update profile");
+        onError: (error) => {
+            const err = error as Error;
+            toast.error(err.message || "Failed to update profile");
         }
     });
 
@@ -153,8 +158,9 @@ export default function Roles() {
             queryClient.invalidateQueries({ queryKey: ["all_profiles"] });
             toast.success("User access revoked successfully");
         },
-        onError: (error: any) => {
-            toast.error(error.message || "Failed to revoke access");
+        onError: (error) => {
+            const err = error as Error;
+            toast.error(err.message || "Failed to revoke access");
         }
     });
 
@@ -231,6 +237,7 @@ export default function Roles() {
                             <Input 
                                 id="add-password" 
                                 type="password" 
+                                autoComplete="new-password"
                                 placeholder="Minimum 6 characters"
                                 value={newPassword}
                                 onChange={(e) => setNewPassword(e.target.value)}
@@ -337,19 +344,20 @@ export default function Roles() {
                                 <TableHead>User ID / Email</TableHead>
                                 <TableHead>Current Role</TableHead>
                                 <TableHead>Permissions</TableHead>
+                                <TableHead>Last Login</TableHead>
                                 <TableHead className="text-right">Action</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {isLoading ? (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                                         Fetching user profiles...
                                     </TableCell>
                                 </TableRow>
                             ) : filteredProfiles.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                                         No users found matching your search.
                                     </TableCell>
                                 </TableRow>
@@ -394,6 +402,11 @@ export default function Roles() {
                                                      "View-only access or portal restricted."}
                                                 </span>
                                             </div>
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                            {profile.last_login 
+                                                ? format(parseISO(profile.last_login), "dd MMM yyyy, hh:mm a")
+                                                : "Never"}
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-2">

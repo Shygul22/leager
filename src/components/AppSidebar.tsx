@@ -1,4 +1,4 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -17,10 +17,12 @@ import {
 const adminItems = [
   { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["admin", "accounts_manager"] },
   { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["admin", "accounts_manager"] },
+  { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["admin", "accounts_manager"] },
   { title: "Bills & Expenses", url: "/bills", icon: CreditCard, roles: ["admin", "accounts_manager"] },
-  { title: "Suppliers", url: "/suppliers", icon: Truck, roles: ["admin"] },
+  { title: "Suppliers & Payouts", url: "/suppliers", icon: Truck, roles: ["admin", "accounts_manager"] },
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["admin"] },
   { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["admin"] },
+  { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["admin"] },
   { title: "Settings", url: "/settings", icon: Settings, roles: ["admin"] },
 ];
 
@@ -31,6 +33,7 @@ const operationalItems = [
   { title: "Quotations", url: "/quotations", icon: FileText, roles: ["admin", "project_manager", "staff"] },
   { title: "Invoices", url: "/invoices", icon: FileText, roles: ["admin", "staff"] },
   { title: "Projects", url: "/projects", icon: Briefcase, roles: ["admin", "project_manager"] },
+  { title: "Documents Library", url: "/documents", icon: FolderOpen, roles: ["admin", "accounts_manager", "project_manager", "staff"] },
   { title: "Support Tickets", url: "/tickets", icon: MessageSquare, roles: ["admin", "ticket_support"] },
   { title: "Bug Tracker", url: "/bug-tracker", icon: Bug, roles: ["admin", "project_manager", "ticket_support"] },
   { title: "Client Portal", url: "/portal", icon: Globe, roles: ["admin"] },

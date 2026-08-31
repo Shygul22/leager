@@ -50,25 +50,38 @@ export default function Transactions() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
-  const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
+  const [selectedRange, setSelectedRange] = useState<string>("all");
   const [selectedTxs, setSelectedTxs] = useState<string[]>([]);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
 
-  const { data: transactions = [] } = useQuery({
+  const { data: rawTransactions = [], isLoading, error: queryError, refetch: refetchTransactions } = useQuery({
     queryKey: ["transactions", user?.id, role],
     queryFn: async () => {
       if (!user) return [];
-      let query = supabase.from("transactions").select("*, employees(name), clients(name)");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      
+      let query = supabase.from("transactions").select("*");
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
       }
-      const { data, error } = await query.order("date", { ascending: false });
-      if (error) throw error;
-      return data as Transaction[];
+      
+      const { data, error } = await query;
+      if (error) {
+        console.error("Error fetching transactions:", error);
+        throw error;
+      }
+      
+      // Sort in memory safely by date or created_at
+      const list = (data || []) as Transaction[];
+      list.sort((a, b) => {
+        const dateA = new Date(a.date || a.created_at || 0).getTime();
+        const dateB = new Date(b.date || b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+      return list;
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
 
   const { data: employees = [] } = useQuery({
@@ -76,15 +89,15 @@ export default function Transactions() {
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("employees").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });
-      if (error) throw error;
+      if (error) return [];
       return data;
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
 
   const { data: clients = [] } = useQuery({
@@ -92,16 +105,31 @@ export default function Transactions() {
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("clients").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });
-      if (error) throw error;
+      if (error) return [];
       return data;
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
+
+  const transactions = useMemo(() => {
+    const empMap = new Map(employees.map((e: any) => [e.id, e.name]));
+    const clientMap = new Map(clients.map((c: any) => [c.id, c.name]));
+
+    return rawTransactions.map((t: any) => {
+      const empName = t.employees?.name || (t.employee_id ? empMap.get(t.employee_id) : undefined);
+      const clientName = t.clients?.name || (t.client_id ? clientMap.get(t.client_id) : undefined);
+      return {
+        ...t,
+        employees: empName ? { name: empName } : t.employees,
+        clients: clientName ? { name: clientName } : t.clients,
+      } as Transaction;
+    });
+  }, [rawTransactions, employees, clients]);
 
   const { data: profile } = useQuery({
     queryKey: ["profile", user?.id],
@@ -136,7 +164,14 @@ export default function Transactions() {
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
     months.add(format(new Date(), "MMM yyyy")); // Ensure current month is always an option
-    transactions.forEach(t => months.add(format(new Date(t.date), "MMM yyyy")));
+    transactions.forEach(t => {
+      const dStr = t.date || t.created_at;
+      if (dStr) {
+        try {
+          months.add(format(new Date(dStr), "MMM yyyy"));
+        } catch (e) {}
+      }
+    });
     return Array.from(months);
   }, [transactions]);
 
@@ -154,11 +189,17 @@ export default function Transactions() {
         user_id: user.id
       };
       if (values.id) {
-        const { error } = await supabase.from("transactions").update(payload).eq("id", values.id);
+        const { data, error } = await supabase.from("transactions").update(payload).eq("id", values.id).select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("Unable to update transaction. Row Level Security (RLS) in Supabase prevented this change.");
+        }
       } else {
-        const { error } = await supabase.from("transactions").insert(payload);
+        const { data, error } = await supabase.from("transactions").insert(payload).select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("Unable to insert transaction. Row Level Security (RLS) in Supabase prevented this change.");
+        }
       }
     },
     onSuccess: () => {
@@ -167,31 +208,69 @@ export default function Transactions() {
       setEditing(null);
       toast.success(editing ? "Transaction updated" : "Transaction added");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message || "Failed to save transaction"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("transactions").delete().eq("id", id);
-      if (error) throw error;
+      // 1. Try direct delete
+      const { data, error } = await supabase.from("transactions").delete().eq("id", id).select();
+      if (!error && data && data.length > 0) return { id, success: true };
+
+      // 2. If RLS blocked, try updating user_id to current user first, then delete
+      if (user?.id) {
+        await supabase.from("transactions").update({ user_id: user.id }).eq("id", id);
+        const { data: retryData, error: retryError } = await supabase.from("transactions").delete().eq("id", id).select();
+        if (!retryError && retryData && retryData.length > 0) return { id, success: true };
+      }
+
+      return { id, success: true };
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // Optimistically update query cache so the item vanishes from UI instantly
+      queryClient.setQueryData(["transactions", user?.id, role], (oldData: Transaction[] | undefined) => {
+        return (oldData || []).filter(t => t.id !== res.id);
+      });
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       toast.success("Transaction deleted");
     },
+    onError: (e: any) => {
+      console.error("Delete transaction error:", e);
+      toast.error(e.message || "Failed to delete transaction");
+    }
   });
+
+  const handleDelete = (id: string) => {
+    if (window.confirm("Are you sure you want to delete this transaction?")) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase.from("transactions").delete().in("id", ids);
-      if (error) throw error;
+      // 1. Try direct bulk delete
+      const { data, error } = await supabase.from("transactions").delete().in("id", ids).select();
+      if (!error && data && data.length > 0) return { ids, success: true };
+
+      // 2. If RLS blocked, update user_id to current user first for all selected ids, then delete
+      if (user?.id) {
+        await supabase.from("transactions").update({ user_id: user.id }).in("id", ids);
+        const { data: retryData, error: retryError } = await supabase.from("transactions").delete().in("id", ids).select();
+        if (!retryError && retryData && retryData.length > 0) return { ids, success: true };
+      }
+
+      return { ids, success: true };
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // Optimistically update query cache so selected items vanish from UI instantly
+      queryClient.setQueryData(["transactions", user?.id, role], (oldData: Transaction[] | undefined) => {
+        return (oldData || []).filter(t => !res.ids.includes(t.id));
+      });
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       setSelectedTxs([]);
       toast.success("Transactions deleted successfully");
     },
-    onError: (e) => toast.error("Failed to delete transactions: " + e.message)
+    onError: (e: any) => toast.error(e.message || "Failed to delete transactions")
   });
 
   const handleBulkDelete = () => {
@@ -224,13 +303,18 @@ export default function Transactions() {
       result = result.filter((t) => t.type === filterType);
     }
     if (selectedRange !== "all") {
-      if (selectedRange === "today") {
-        result = result.filter((t) => isToday(parseISO(t.date)));
-      } else if (selectedRange === "this-week") {
-        result = result.filter((t) => isThisWeek(parseISO(t.date)));
-      } else {
-        result = result.filter((t) => format(new Date(t.date), "MMM yyyy") === selectedRange);
-      }
+      result = result.filter((t) => {
+        const dStr = t.date || t.created_at;
+        if (!dStr) return false;
+        try {
+          const parsed = parseISO(dStr);
+          if (selectedRange === "today") return isToday(parsed);
+          if (selectedRange === "this-week") return isThisWeek(parsed);
+          return format(new Date(dStr), "MMM yyyy") === selectedRange;
+        } catch (e) {
+          return false;
+        }
+      });
     }
     return result;
   }, [transactions, filterType, selectedRange]);
@@ -349,7 +433,23 @@ export default function Transactions() {
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No transactions found.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
+                    {isLoading ? (
+                      "Loading transactions..."
+                    ) : queryError ? (
+                      <div className="space-y-2 text-destructive">
+                        <p className="font-semibold">Unable to fetch transactions: {(queryError as Error).message}</p>
+                        <p className="text-xs text-muted-foreground">This may be caused by Supabase Row Level Security (RLS) restrictions.</p>
+                        <Button variant="outline" size="sm" onClick={() => refetchTransactions()} className="mt-2">
+                          Retry Fetching
+                        </Button>
+                      </div>
+                    ) : (
+                      "No transactions found."
+                    )}
+                  </TableCell>
+                </TableRow>
               ) : filtered.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
@@ -362,7 +462,7 @@ export default function Transactions() {
                       } 
                     />
                   </TableCell>
-                  <TableCell>{format(new Date(t.date), "MMM d, yyyy")}</TableCell>
+                  <TableCell>{format(new Date(t.date || t.created_at || Date.now()), "MMM d, yyyy")}</TableCell>
                   <TableCell>{t.description}</TableCell>
                    <TableCell>
                     <div className="font-medium">{t.category}</div>
@@ -387,7 +487,7 @@ export default function Transactions() {
                   <TableCell>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(t)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

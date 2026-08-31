@@ -514,10 +514,15 @@ export default function Invoices() {
 
   const deleteInvoice = useMutation({
     mutationFn: async (id: string) => {
+      try {
+        await supabase.from("invoice_items").delete().eq("invoice_id", id);
+      } catch (e) {
+        console.warn("Pre-delete invoice items warning:", e);
+      }
       const { error } = await supabase.from("invoices").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["invoices"] }); toast.success("Invoice deleted"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["invoices"] }); toast.success("Invoice deleted successfully"); },
   });
 
   const addItem = () => setForm({ ...form, items: [...form.items, { description: "", quantity: 1, rate: 0, gst: 0, mrp: 0, discount: 0 }] });

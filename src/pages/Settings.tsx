@@ -679,6 +679,7 @@ export default function Settings() {
                         <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center max-w-sm">
                             <Input 
                                 type="password" 
+                                autoComplete="new-password"
                                 placeholder="New password (min 6 characters)" 
                                 value={newPassword}
                                 onChange={(e) => setNewPassword(e.target.value)}

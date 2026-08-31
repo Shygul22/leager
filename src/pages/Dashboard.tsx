@@ -49,16 +49,16 @@ export default function Dashboard() {
       if (!user) return [];
       let query = supabase.from("transactions").select("*");
       
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
       }
       
-      const { data, error } = await query.order("date", { ascending: false });
-      if (error) throw error;
-      return data;
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
 
   const { data: bills = [] } = useQuery({
@@ -67,15 +67,14 @@ export default function Dashboard() {
       if (!user) return [];
       let query = supabase.from("bills").select("*, bill_items(*)");
       
-      // Transactions: Only Admin and Accounts Manager see these
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
       }
       
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return data || [];
     },
     enabled: !!user,
   });
@@ -86,8 +85,7 @@ export default function Dashboard() {
       if (!user) return [];
       let query = supabase.from("invoices").select("*, invoice_items(*)");
       
-      // Shared company invoices
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
+      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       
       if (!isStaffOrAbove) {
         query = query.eq("user_id", user.id);
@@ -95,7 +93,7 @@ export default function Dashboard() {
       
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return data || [];
     },
     enabled: !!user,
   });
@@ -107,10 +105,11 @@ export default function Dashboard() {
       let query = supabase.from("clients").select("*");
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return data || [];
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
+
   const { data: quotations = [] } = useQuery({
     queryKey: ["quotations", user?.id, role],
     queryFn: async () => {
@@ -118,45 +117,80 @@ export default function Dashboard() {
       let query = supabase.from("quotations").select("*, quotation_items(*)");
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return data || [];
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
+
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
     months.add(format(new Date(), "MMM yyyy")); // Ensure current month is always an option
-    transactions.forEach(t => months.add(format(new Date(t.date), "MMM yyyy")));
+    transactions.forEach(t => {
+      const dStr = t.date || t.created_at;
+      if (dStr) {
+        try {
+          months.add(format(new Date(dStr), "MMM yyyy"));
+        } catch (e) {}
+      }
+    });
     return Array.from(months);
   }, [transactions]);
 
   const filteredTransactions = useMemo(() => {
     if (selectedRange === "all") return transactions;
-    if (selectedRange === "today") return transactions.filter(t => isToday(parseISO(t.date)));
-    if (selectedRange === "this-week") return transactions.filter(t => isThisWeek(parseISO(t.date)));
-    return transactions.filter(t => format(new Date(t.date), "MMM yyyy") === selectedRange);
+    return transactions.filter(t => {
+      const dStr = t.date || t.created_at;
+      if (!dStr) return false;
+      try {
+        const parsed = parseISO(dStr);
+        if (selectedRange === "today") return isToday(parsed);
+        if (selectedRange === "this-week") return isThisWeek(parsed);
+        return format(new Date(dStr), "MMM yyyy") === selectedRange;
+      } catch (e) {
+        return false;
+      }
+    });
   }, [transactions, selectedRange]);
 
   const incomeTxs = filteredTransactions.filter((t) => t.type === "income");
   const expenseTxs = filteredTransactions.filter((t) => t.type === "expense");
 
   // Cash Logic (Savings)
-  const totalCashIn = incomeTxs.reduce((sum, t) => sum + Number(t.amount), 0);
-  const totalCashOut = expenseTxs.reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalCashIn = incomeTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const totalCashOut = expenseTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const savingAmount = totalCashIn - totalCashOut;
 
   // Accrual Logic (Net Profit)
   const filteredBills = useMemo(() => {
     if (selectedRange === "all") return bills;
-    if (selectedRange === "today") return bills.filter(b => isToday(parseISO(b.date)));
-    if (selectedRange === "this-week") return bills.filter(b => isThisWeek(parseISO(b.date)));
-    return bills.filter(b => format(new Date(b.date), "MMM yyyy") === selectedRange);
+    return bills.filter(b => {
+      const dStr = b.date || b.created_at;
+      if (!dStr) return false;
+      try {
+        const parsed = parseISO(dStr);
+        if (selectedRange === "today") return isToday(parsed);
+        if (selectedRange === "this-week") return isThisWeek(parsed);
+        return format(new Date(dStr), "MMM yyyy") === selectedRange;
+      } catch (e) {
+        return false;
+      }
+    });
   }, [bills, selectedRange]);
 
   const filteredInvoices = useMemo(() => {
     if (selectedRange === "all") return invoices;
-    if (selectedRange === "today") return invoices.filter((inv: any) => isToday(parseISO(inv.date)));
-    if (selectedRange === "this-week") return invoices.filter((inv: any) => isThisWeek(parseISO(inv.date)));
-    return invoices.filter((inv: any) => format(new Date(inv.date), "MMM yyyy") === selectedRange);
+    return invoices.filter((inv: any) => {
+      const dStr = inv.date || inv.created_at;
+      if (!dStr) return false;
+      try {
+        const parsed = parseISO(dStr);
+        if (selectedRange === "today") return isToday(parsed);
+        if (selectedRange === "this-week") return isThisWeek(parsed);
+        return format(new Date(dStr), "MMM yyyy") === selectedRange;
+      } catch (e) {
+        return false;
+      }
+    });
   }, [invoices, selectedRange]);
 
   const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + getInvoiceTotal(inv.invoice_items, inv.discount_percentage), 0);

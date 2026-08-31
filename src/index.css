@@ -115,14 +115,35 @@ All colors MUST be HSL.
     print-color-adjust: exact;
   }
 
-  /* Hide the main application container so it doesn't interfere */
-  #root, #sidebar-wrapper, [class*="DialogOverlay"], .bg-black\/80, [data-state="open"]::before {
+  /* Hide navigation, sidebars, top headers, dialog overlays, and elements marked print:hidden */
+  .print\:hidden,
+  aside,
+  header,
+  #sidebar-wrapper,
+  [data-sidebar="sidebar"],
+  [class*="DialogOverlay"],
+  .bg-black\/80,
+  [data-state="open"]::before {
     display: none !important;
   }
 
-  /* Hide any portal elements that are overlays or backgrounds */
-  div[class*="backdrop-blur"], div[class*="bg-black/"] {
+  /* Hide main root app container ONLY when a dialog modal is open (e.g. invoice or voucher modal) */
+  body:has([role="dialog"]) #root {
     display: none !important;
+  }
+
+  /* When printing normal pages directly (e.g. Tax Reports, Dashboard), keep #root and main visible */
+  body:not(:has([role="dialog"])) #root {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body:not(:has([role="dialog"])) main {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
   }
 
   /* Reset the Radix UI Dialog so it fully expands to the page size */

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import EntityDocumentsSection from "@/components/documents/EntityDocumentsSection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -234,12 +235,17 @@ export default function Bills() {
 
     const deleteBill = useMutation({
         mutationFn: async (id: string) => {
+            try {
+                await supabase.from("bill_items").delete().eq("bill_id", id);
+            } catch (e) {
+                console.warn("Pre-delete bill items warning:", e);
+            }
             const { error } = await supabase.from("bills").delete().eq("id", id);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["bills"] });
-            toast.success("Bill deleted");
+            toast.success("Bill deleted successfully");
         },
     });
 
@@ -556,6 +562,17 @@ export default function Bills() {
 
                         </div>
                     </div>
+
+                    {editingId && (
+                        <div className="mt-6 pt-6 border-t border-slate-800">
+                            <EntityDocumentsSection 
+                                entityId={editingId}
+                                entityType="bill"
+                                title="Bill Invoices & Receipts"
+                                description="Attach and manage original supplier invoices or payment slips for this bill."
+                            />
+                        </div>
+                    )}
 
                     <DialogFooter className="mt-6 border-t pt-4">
                         <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

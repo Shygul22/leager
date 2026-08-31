@@ -2,10 +2,19 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User } from "@supabase/supabase-js";
 
+type Profile = {
+    id: string;
+    email: string | null;
+    role: string | null;
+    full_name?: string | null;
+    company_name?: string | null;
+    last_login?: string | null;
+};
+
 type AuthContextType = {
     session: Session | null;
     user: User | null;
-    profile: any | null;
+    profile: Profile | null;
     role: string | null;
     loading: boolean;
     signOut: () => Promise<void>;
@@ -16,7 +25,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [user, setUser] = useState<User | null>(null);
-    const [profile, setProfile] = useState<any | null>(null);
+    const [profile, setProfile] = useState<Profile | null>(null);
     const [role, setRole] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -30,20 +39,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (error) throw error;
             if (data) {
-                setProfile(data);
-                setRole(data.role || "staff"); // Default to staff if no role set
+                setProfile(data as Profile);
+                setRole(data.role || "staff");
             } else {
-                // Fallback if profile doesn't exist yet
                 setRole("staff");
             }
         } catch (err) {
             console.error("Error fetching profile:", err);
-            setRole("staff"); // Fallback on error
+            setRole("staff");
+        }
+    };
+
+    // Stamp last_login in profiles whenever a user signs in
+    const stampLastLogin = async (userId: string) => {
+        try {
+            await supabase
+                .from("profiles")
+                .update({ last_login: new Date().toISOString() })
+                .eq("id", userId);
+        } catch (err) {
+            console.error("Failed to stamp last_login:", err);
         }
     };
 
     useEffect(() => {
-        // Check active session
+        // Check active session on mount
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
             const currentUser = session?.user ?? null;
@@ -55,13 +75,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Listen for changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        // Listen for auth state changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             setSession(session);
             const currentUser = session?.user ?? null;
             setUser(currentUser);
+
             if (currentUser) {
                 fetchProfile(currentUser.id);
+
+                // Stamp last_login on every fresh sign-in
+                if (event === "SIGNED_IN") {
+                    stampLastLogin(currentUser.id);
+                }
             } else {
                 setProfile(null);
                 setRole(null);

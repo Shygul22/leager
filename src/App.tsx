@@ -20,12 +20,15 @@ import Products from "./pages/Products";
 import Suppliers from "./pages/Suppliers";
 import Bills from "./pages/Bills";
 import TaxReports from "./pages/TaxReports";
+import Shareholders from "./pages/Shareholders";
 import Employees from "./pages/Employees";
 import Tickets from "./pages/Tickets";
 import Roles from "./pages/Roles";
 import Projects from "./pages/Projects";
 import BugTracker from "./pages/BugTracker";
 import Quotations from "./pages/Quotations";
+import Documents from "./pages/Documents";
+import AccessDirectory from "./pages/AccessDirectory";
 
 import NotFound from "./pages/NotFound";
 import { Loader2, Lock } from "lucide-react";
@@ -131,12 +134,15 @@ const App = () => (
             <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin']}><Suppliers /></ProtectedRoute>} />
             <Route path="/bills" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
             <Route path="/tax-reports" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><TaxReports /></ProtectedRoute>} />
+            <Route path="/shareholders" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Shareholders /></ProtectedRoute>} />
             <Route path="/employees" element={<ProtectedRoute allowedRoles={['admin']}><Employees /></ProtectedRoute>} />
             <Route path="/tickets" element={<ProtectedRoute allowedRoles={['admin', 'ticket_support']}><Tickets /></ProtectedRoute>} />
             <Route path="/roles" element={<ProtectedRoute allowedRoles={['admin']}><Roles /></ProtectedRoute>} />
             <Route path="/bug-tracker" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'ticket_support']}><BugTracker /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Projects /></ProtectedRoute>} />
             <Route path="/quotations" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'staff']}><Quotations /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'project_manager', 'staff']}><Documents /></ProtectedRoute>} />
+            <Route path="/access-directory" element={<ProtectedRoute allowedRoles={['admin']}><AccessDirectory /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute minLevel={10}><Settings /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />

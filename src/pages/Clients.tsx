@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import EntityDocumentsSection from "@/components/documents/EntityDocumentsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -377,12 +378,23 @@ export default function Clients() {
 
     const deleteClient = useMutation({
         mutationFn: async (id: string) => {
+            // Unlink dependent financial & operational records before deleting client
+            try {
+                await supabase.from("invoices").update({ client_id: null }).eq("client_id", id);
+                await supabase.from("quotations").update({ client_id: null }).eq("client_id", id);
+                await supabase.from("transactions").update({ client_id: null }).eq("client_id", id);
+                await supabase.from("projects").update({ client_id: null }).eq("client_id", id);
+                await supabase.from("tickets").update({ client_id: null }).eq("client_id", id);
+            } catch (e) {
+                console.warn("Client pre-delete cleanup warning:", e);
+            }
+
             const { error } = await supabase.from("clients").delete().eq("id", id);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["clients"] });
-            toast.success("Client deleted");
+            toast.success("Client deleted successfully");
         },
         onError: (e) => toast.error(e.message),
     });
@@ -810,6 +822,16 @@ export default function Clients() {
                                         {previewClient.msme_number && (
                                             <div className="text-sm text-gray-600"><span className="font-bold text-gray-400 text-xs uppercase mr-1">MSME:</span>{previewClient.msme_number}</div>
                                         )}
+                                    </div>
+
+                                    {/* Attached Documents */}
+                                    <div className="pt-4 border-t border-slate-800">
+                                        <EntityDocumentsSection 
+                                            entityId={previewClient.id} 
+                                            entityType="client"
+                                            title="Client Agreements & KYC"
+                                            description="Manage compliance records, onboarding forms, and service contracts for this client."
+                                        />
                                     </div>
                                 </div>
                             </div>
