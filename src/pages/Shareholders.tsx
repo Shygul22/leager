@@ -51,64 +51,19 @@ export interface DividendRecord {
     paymentDate?: string;
 }
 
-const defaultShareholders: Shareholder[] = [
-    {
-        id: "sh-1",
-        name: "Shygul Akbar",
-        designation: "Founder & Executive Director",
-        category: "Promoter",
-        panNumber: "ABCPA1234F",
-        folioNumber: "ZJ-FOLIO-001",
-        sharesHeld: 60000,
-        faceValue: 10,
-        bankName: "HDFC Bank",
-        accountNumber: "50100234567890",
-        ifscCode: "HDFC0001234",
-        email: "shygul@zenjourney.in",
-        status: "Active"
-    },
-    {
-        id: "sh-2",
-        name: "Co-Founder / Director",
-        designation: "Director",
-        category: "Promoter",
-        panNumber: "XYZPB9876K",
-        folioNumber: "ZJ-FOLIO-002",
-        sharesHeld: 30000,
-        faceValue: 10,
-        bankName: "ICICI Bank",
-        accountNumber: "000405012345",
-        ifscCode: "ICIC0000004",
-        email: "director@zenjourney.in",
-        status: "Active"
-    },
-    {
-        id: "sh-3",
-        name: "Employee Stock Option Trust (ESOP)",
-        designation: "Key Employee Pool",
-        category: "Key Executive",
-        panNumber: "AAATT1122M",
-        folioNumber: "ZJ-FOLIO-003",
-        sharesHeld: 10000,
-        faceValue: 10,
-        bankName: "State Bank of India",
-        accountNumber: "33098765432",
-        ifscCode: "SBIN0000800",
-        status: "Active"
-    }
-];
+const defaultShareholders: Shareholder[] = [];
 
 export default function Shareholders() {
     const { user, role } = useAuth();
     const [mainTab, setMainTab] = useState("cap-table");
 
-    // Local Storage Persisted Shareholders
+    // Local Storage / DB Persisted Shareholders (Defaults to empty array)
     const [shareholders, setShareholders] = useState<Shareholder[]>(() => {
         const saved = localStorage.getItem("company_shareholders");
         if (saved) {
             try { return JSON.parse(saved); } catch (e) {}
         }
-        return defaultShareholders;
+        return [];
     });
 
     // Payout Ratio Settings (% of Net Profit distributed as Dividend)
@@ -213,7 +168,7 @@ export default function Shareholders() {
         if (customNetProfitOverride !== "" && !isNaN(parseFloat(customNetProfitOverride))) {
             return parseFloat(customNetProfitOverride);
         }
-        return liveCashNetProfit > 0 ? liveCashNetProfit : (liveAccrualNetProfit > 0 ? liveAccrualNetProfit : 1944.00);
+        return liveCashNetProfit > 0 ? liveCashNetProfit : (liveAccrualNetProfit > 0 ? liveAccrualNetProfit : 0.00);
     }, [customNetProfitOverride, liveCashNetProfit, liveAccrualNetProfit]);
 
     // Cap Table Calculations

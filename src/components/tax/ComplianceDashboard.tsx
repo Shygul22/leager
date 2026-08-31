@@ -26,9 +26,9 @@ export interface ComplianceItem {
 
 const initialCompliances: ComplianceItem[] = [
     // Incorporation & MCA / ROC Compliances for ZENJOURNEY PRIVATE LIMITED (Inc: 07 April 2026)
-    { id: "mca-inc-1", authority: "MCA / ROC", formName: "Form ADT-1", title: "Appointment of First Statutory Auditor (Within 30 Days)", dueDate: "2026-05-07", period: "First FY 2026-27", status: "Completed", penaltyRule: "₹300/month late fee" },
+    { id: "mca-inc-1", authority: "MCA / ROC", formName: "Form ADT-1", title: "Appointment of First Statutory Auditor (Within 30 Days)", dueDate: "2026-05-07", period: "First FY 2026-27", status: "Upcoming", penaltyRule: "₹300/month late fee" },
     { id: "mca-inc-2", authority: "MCA / ROC", formName: "Form INC-20A", title: "Declaration of Commencement of Business (Within 180 Days)", dueDate: "2026-10-04", period: "First FY 2026-27", status: "Upcoming", penaltyRule: "Flat ₹50,000 company penalty + ₹1,000/day for directors" },
-    { id: "mca-1", authority: "MCA / ROC", formName: "Form DPT-3", title: "Return of Deposits & Non-Deposit Loans", dueDate: "2026-06-30", period: "FY 2025-26", status: "Completed", penaltyRule: "₹5,000 + ₹500/day after due date" },
+    { id: "mca-1", authority: "MCA / ROC", formName: "Form DPT-3", title: "Return of Deposits & Non-Deposit Loans", dueDate: "2026-06-30", period: "FY 2025-26", status: "Upcoming", penaltyRule: "₹5,000 + ₹500/day after due date" },
     { id: "mca-2", authority: "MCA / ROC", formName: "DIR-3 KYC", title: "Annual KYC of Directors", dueDate: "2026-09-30", period: "FY 2025-26", status: "Upcoming", penaltyRule: "Flat ₹5,000 penalty per director" },
     { id: "mca-3", authority: "MCA / ROC", formName: "Form AOC-4", title: "Filing of Audited Financial Statements", dueDate: "2026-10-30", period: "FY 2025-26", status: "Upcoming", penaltyRule: "₹100 per day of delay" },
     { id: "mca-4", authority: "MCA / ROC", formName: "Form MGT-7A", title: "Annual Return of Small Company", dueDate: "2026-11-29", period: "FY 2025-26", status: "Upcoming", penaltyRule: "₹100 per day of delay" },
@@ -45,24 +45,34 @@ const initialCompliances: ComplianceItem[] = [
     { id: "gst-3", authority: "GST", formName: "GSTR-9 / 9C", title: "Annual GST Return & Reconciliation Statement", dueDate: "2026-12-31", period: "FY 2025-26", status: "Upcoming", penaltyRule: "₹200 per day (0.5% turnover cap)" },
 
     // TDS
-    { id: "tds-1", authority: "TDS", formName: "Form 26Q Q1", title: "Quarterly TDS Statement (Non-Salary)", dueDate: "2026-07-31", period: "Q1 FY 26", status: "Completed", penaltyRule: "₹200 per day under Sec 234E" },
+    { id: "tds-1", authority: "TDS", formName: "Form 26Q Q1", title: "Quarterly TDS Statement (Non-Salary)", dueDate: "2026-07-31", period: "Q1 FY 26", status: "Upcoming", penaltyRule: "₹200 per day under Sec 234E" },
     { id: "tds-2", authority: "TDS", formName: "Form 26Q Q2", title: "Quarterly TDS Statement (Non-Salary)", dueDate: "2026-10-31", period: "Q2 FY 26", status: "Upcoming", penaltyRule: "₹200 per day under Sec 234E" },
 ];
 
 export default function ComplianceDashboard() {
-    const [compliances, setCompliances] = useState<ComplianceItem[]>(initialCompliances);
+    const [compliances, setCompliances] = useState<ComplianceItem[]>(() => {
+        const saved = localStorage.getItem("company_statutory_compliances");
+        if (saved) {
+            try { return JSON.parse(saved); } catch (e) {}
+        }
+        return initialCompliances;
+    });
     const [authorityFilter, setAuthorityFilter] = useState<string>("all");
     const [statusFilter, setStatusFilter] = useState<string>("all");
 
     const toggleStatus = (id: string) => {
-        setCompliances(prev => prev.map(item => {
-            if (item.id === id) {
-                const nextStatus: ComplianceStatus = item.status === "Completed" ? "Pending" : "Completed";
-                toast.success(`${item.formName} marked as ${nextStatus}`);
-                return { ...item, status: nextStatus };
-            }
-            return item;
-        }));
+        setCompliances(prev => {
+            const next = prev.map(item => {
+                if (item.id === id) {
+                    const nextStatus: ComplianceStatus = item.status === "Completed" ? "Pending" : "Completed";
+                    toast.success(`${item.formName} marked as ${nextStatus}`);
+                    return { ...item, status: nextStatus };
+                }
+                return item;
+            });
+            localStorage.setItem("company_statutory_compliances", JSON.stringify(next));
+            return next;
+        });
     };
 
     const filtered = compliances
