@@ -46,7 +46,20 @@ export default function EntityDocumentsSection({
                 .eq("entity_id", entityId)
                 .order("created_at", { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.warn("Entity documents join failed, attempting plain select:", error.message);
+                const fallback = await supabase
+                    .from("documents")
+                    .select("*")
+                    .eq("entity_type", entityType)
+                    .eq("entity_id", entityId)
+                    .order("created_at", { ascending: false });
+
+                if (!fallback.error) {
+                    return (fallback.data || []) as Document[];
+                }
+                throw error;
+            }
             return (data || []) as Document[];
         },
         enabled: !!entityId

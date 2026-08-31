@@ -151,6 +151,15 @@ export default function Documents() {
                     .order("created_at", { ascending: false });
 
                 if (error) {
+                    console.warn("Documents profile join failed, attempting plain select:", error.message);
+                    const fallback = await supabase
+                        .from("documents")
+                        .select("*")
+                        .order("created_at", { ascending: false });
+
+                    if (!fallback.error) {
+                        return (fallback.data || []) as Document[];
+                    }
                     console.error("Database error fetching documents:", error);
                     toast.error("Failed to load documents: " + error.message);
                     return [] as Document[];
@@ -173,10 +182,18 @@ export default function Documents() {
             const { data, error } = await supabase
                 .from("document_audit_logs")
                 .select("*, changer_profile:profiles!changed_by(full_name, email), documents!document_id(name)")
-                .order("changed_at", { ascending: false });
+                .order("created_at", { ascending: false });
 
             if (error) {
-                console.error("Error fetching global audit logs:", error);
+                console.warn("Audit logs join failed, attempting plain select:", error.message);
+                const fallback = await supabase
+                    .from("document_audit_logs")
+                    .select("*")
+                    .order("created_at", { ascending: false });
+
+                if (!fallback.error) {
+                    return (fallback.data || []) as any[];
+                }
                 return [];
             }
             return data as DocumentAuditLog[];
