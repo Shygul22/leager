@@ -6,6 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const DEFAULT_PAGE_ACCESS_TOKEN = "EAAkFBp3ZAKPsBSXH4mmBaKNUP4k2C5ZBDf0qjtThDo79gE9z3srkiZBVzQ1AezU8wvLfXVVME0pF7DZC3VMDvuYQeT2x0TFZATbYk5NZAfhTBFshqqOL4lSHE6R9Ls9einGHJk6ffT4DJ79WykT8JnZCbGLAChkcw4PdGedWD8418S2FNAxbMZAJQjUkC3GKywkNCwZDZD";
+const DEFAULT_PAGE_ID = "1104650452121764";
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -82,11 +85,13 @@ serve(async (req) => {
         let pageAccessToken = "";
         let userId: string | null = null;
 
-        if (pageId) {
+        const targetPageId = pageId || DEFAULT_PAGE_ID;
+
+        if (targetPageId) {
           const { data: config } = await supabase
             .from("facebook_lead_configs")
             .select("page_access_token, user_id")
-            .eq("page_id", pageId)
+            .eq("page_id", targetPageId)
             .eq("is_active", true)
             .maybeSingle();
 
@@ -112,18 +117,30 @@ serve(async (req) => {
           }
         }
 
+        // Fallback to configured Access Token
+        if (!pageAccessToken) {
+          pageAccessToken = DEFAULT_PAGE_ACCESS_TOKEN;
+        }
+
         let leadName = "Meta Lead " + leadgenId.slice(-4);
         let phone = "";
         let email = "";
         let serviceInterested = "Facebook Ads Campaign";
         let notes = `Auto-ingested from Meta Ads Manager (Lead ID: ${leadgenId}${formId ? `, Form: ${formId}` : ''})`;
 
-        // Fetch complete un-hashed lead fields from Meta Graph API using Page Access Token
+        // Fetch complete un-hashed lead fields from Meta Graph API using v26.0 / v19.0
         if (pageAccessToken) {
           try {
-            const graphUrl = `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${pageAccessToken}`;
-            const graphRes = await fetch(graphUrl);
-            const graphData = await graphRes.json();
+            let graphUrl = `https://graph.facebook.com/v26.0/${leadgenId}?access_token=${pageAccessToken}`;
+            let graphRes = await fetch(graphUrl);
+            let graphData = await graphRes.json();
+
+            if (graphData.error) {
+              console.warn("v26.0 failed, trying v19.0:", graphData.error);
+              graphUrl = `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${pageAccessToken}`;
+              graphRes = await fetch(graphUrl);
+              graphData = await graphRes.json();
+            }
 
             console.log("Meta Graph API Lead Data:", JSON.stringify(graphData));
 
