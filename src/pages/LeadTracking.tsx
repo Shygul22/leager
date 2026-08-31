@@ -153,32 +153,37 @@ export default function LeadTracking() {
         setIsTestingLead(true);
         try {
             const token = metaForm.page_access_token || metaConfig?.page_access_token;
-            if (!token) {
-                toast.error("Please enter and save your Facebook Page Access Token first.");
-                setIsTestingLead(false);
-                return;
-            }
-
-            const res = await fetch(`https://graph.facebook.com/v19.0/${metaTestLeadId}?access_token=${token}`);
-            const data = await res.json();
-
-            if (data.error) {
-                throw new Error(data.error.message || "Failed to fetch lead from Meta Graph API");
-            }
-
-            let leadName = "Meta Lead " + metaTestLeadId.slice(-4);
+            let leadName = "Meta Lead " + metaTestLeadId.slice(-6);
             let phone = "";
             let email = "";
             let serviceInterested = "Facebook Lead Ads";
+            let apiNotice = "";
 
-            if (data.field_data) {
-                for (const f of data.field_data) {
-                    const fname = (f.name || "").toLowerCase();
-                    const val = Array.isArray(f.values) ? f.values[0] : f.values;
-                    if (fname.includes("name")) leadName = val;
-                    else if (fname.includes("email")) email = val;
-                    else if (fname.includes("phone")) phone = val;
-                    else if (fname.includes("service") || fname.includes("product")) serviceInterested = val;
+            if (token) {
+                try {
+                    let graphRes = await fetch(`https://graph.facebook.com/v26.0/${metaTestLeadId}?access_token=${token}`);
+                    let data = await graphRes.json();
+
+                    if (data.error) {
+                        graphRes = await fetch(`https://graph.facebook.com/v19.0/${metaTestLeadId}?access_token=${token}`);
+                        data = await graphRes.json();
+                    }
+
+                    if (data.error) {
+                        console.warn("Meta Graph API Notice:", data.error);
+                        apiNotice = data.error.message || "Permissions required for auto-field mapping";
+                    } else if (data.field_data) {
+                        for (const f of data.field_data) {
+                            const fname = (f.name || "").toLowerCase();
+                            const val = Array.isArray(f.values) ? f.values[0] : f.values;
+                            if (fname.includes("full_name") || fname.includes("name")) leadName = val;
+                            else if (fname.includes("email")) email = val;
+                            else if (fname.includes("phone")) phone = val;
+                            else if (fname.includes("service") || fname.includes("product")) serviceInterested = val;
+                        }
+                    }
+                } catch (fetchErr) {
+                    console.warn("Meta fetch error:", fetchErr);
                 }
             }
 
@@ -188,7 +193,7 @@ export default function LeadTracking() {
                 phone: phone || null,
                 gmail: email || null,
                 service_interested: serviceInterested,
-                notes: `Imported directly from Meta Ads Manager (Leadgen ID: ${metaTestLeadId})`,
+                notes: `Imported from Meta Ads Manager (Lead ID: ${metaTestLeadId})${apiNotice ? ` - [Note: ${apiNotice}]` : ''}`,
                 lead_status: "new",
                 probability: 60,
                 value: 0,
@@ -199,7 +204,7 @@ export default function LeadTracking() {
             if (insErr) throw insErr;
 
             queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
-            toast.success(`Successfully imported Meta lead: ${leadName}`);
+            toast.success(`Lead created for Meta ID: ${metaTestLeadId}`);
             setMetaTestLeadId("");
         } catch (err: any) {
             toast.error(err.message || "Error importing Meta lead");
