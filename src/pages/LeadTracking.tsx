@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download, UserCheck, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 
 type LeadTrackingRecord = {
@@ -43,6 +43,7 @@ export default function LeadTracking() {
 
     const [editingRecord, setEditingRecord] = useState<LeadTrackingRecord | null>(null);
     const [search, setSearch] = useState("");
+    const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
 
     // Meta Ads Config State
     const [metaForm, setMetaForm] = useState({
@@ -225,7 +226,6 @@ export default function LeadTracking() {
         }
         setIsSyncingSheet(true);
         try {
-            // Extract Sheet Base Key (e.g. 152MTeyvxbjTCj4-tOpGTTPrWm-M31kHclkqy-hwEFWU)
             const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
             const sheetId = match ? match[1] : "";
 
@@ -304,6 +304,72 @@ export default function LeadTracking() {
             setIsSyncingSheet(false);
         }
     };
+
+    // Bulk Delete Mutation
+    const bulkDeleteMutation = useMutation({
+        mutationFn: async (idsToDelete?: string[]) => {
+            const targets = idsToDelete || selectedLeadIds;
+            if (targets.length === 0) return;
+            const { error } = await supabase.from("lead_tracking").delete().in("id", targets);
+            if (error) throw error;
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
+            const count = variables ? variables.length : selectedLeadIds.length;
+            toast.success(`Deleted ${count} lead record(s)`);
+            setSelectedLeadIds([]);
+        },
+        onError: (err: any) => {
+            toast.error(err.message || "Failed to delete selected leads");
+        }
+    });
+
+    // Convert / Move Lead(s) to Client Book & Client Tracking
+    const convertToClientMutation = useMutation({
+        mutationFn: async (leadList: LeadTrackingRecord[]) => {
+            if (!user) throw new Error("Unauthenticated");
+
+            for (const lead of leadList) {
+                // 1. Insert into public.clients (Client Book)
+                const { data: newClient } = await supabase.from("clients").insert([{
+                    user_id: user.id,
+                    name: lead.lead_name,
+                    email: lead.gmail || null,
+                    phone: lead.phone || null,
+                    notes: lead.notes || "Converted from Lead Tracking",
+                    category: "General",
+                    status: "active"
+                }]).select().maybeSingle();
+
+                // 2. Insert into public.client_tracking
+                await supabase.from("client_tracking").insert([{
+                    user_id: user.id,
+                    client_id: newClient?.id || null,
+                    client_name: lead.lead_name,
+                    phone: lead.phone || null,
+                    service_type: lead.service_interested || "Software Services",
+                    project_status: "in_progress",
+                    payment_status: "unpaid",
+                    total_budget: Number(lead.value) || 0,
+                    amount_paid: 0,
+                    last_contact_date: new Date().toISOString().split("T")[0]
+                }]);
+
+                // 3. Mark lead status as "won"
+                await supabase.from("lead_tracking").update({ lead_status: "won" }).eq("id", lead.id);
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
+            queryClient.invalidateQueries({ queryKey: ["client_tracking"] });
+            queryClient.invalidateQueries({ queryKey: ["clients"] });
+            toast.success("Lead(s) moved to Client Book & Client Tracking!");
+            setSelectedLeadIds([]);
+        },
+        onError: (err: any) => {
+            toast.error(err.message || "Failed to convert lead(s)");
+        }
+    });
 
     const saveMutation = useMutation({
         mutationFn: async () => {
@@ -411,6 +477,20 @@ export default function LeadTracking() {
         (r.notes && r.notes.toLowerCase().includes(search.toLowerCase()))
     );
 
+    const handleSelectAll = (checked: boolean) => {
+        if (checked) {
+            setSelectedLeadIds(filteredRecords.map(r => r.id));
+        } else {
+            setSelectedLeadIds([]);
+        }
+    };
+
+    const handleToggleSelect = (id: string) => {
+        setSelectedLeadIds(prev =>
+            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+        );
+    };
+
     const totalPipelineValue = records.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
     const wonLeadsCount = records.filter(r => r.lead_status === "won").length;
     const totalOutstanding = records.reduce((acc, curr) => acc + (Number(curr.outstanding_value) || 0), 0);
@@ -503,7 +583,44 @@ export default function LeadTracking() {
                                 className="pl-9"
                             />
                         </div>
-                        <p className="text-xs text-muted-foreground">Showing {filteredRecords.length} leads</p>
+
+                        {/* Bulk Action Controls */}
+                        {selectedLeadIds.length > 0 ? (
+                            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <span className="text-xs font-semibold px-2 text-slate-700 dark:text-slate-300">
+                                    {selectedLeadIds.length} Selected
+                                </span>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        const selectedObjs = records.filter(r => selectedLeadIds.includes(r.id));
+                                        convertToClientMutation.mutate(selectedObjs);
+                                    }}
+                                    disabled={convertToClientMutation.isPending}
+                                    className="h-8 text-xs gap-1 border-emerald-500/40 text-emerald-600 hover:bg-emerald-50"
+                                >
+                                    {convertToClientMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5 text-emerald-600" />}
+                                    Move to Client Book & Tracking
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => {
+                                        if (confirm(`Are you sure you want to delete ${selectedLeadIds.length} selected lead(s)?`)) {
+                                            bulkDeleteMutation.mutate();
+                                        }
+                                    }}
+                                    disabled={bulkDeleteMutation.isPending}
+                                    className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                                >
+                                    {bulkDeleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                    Bulk Delete ({selectedLeadIds.length})
+                                </Button>
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted-foreground">Showing {filteredRecords.length} leads</p>
+                        )}
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -511,6 +628,14 @@ export default function LeadTracking() {
                         <Table>
                             <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
                                 <TableRow>
+                                    <TableHead className="w-[40px] text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedLeadIds.length === filteredRecords.length && filteredRecords.length > 0}
+                                            onChange={(e) => handleSelectAll(e.target.checked)}
+                                            className="rounded border-slate-300 h-4 w-4 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                        />
+                                    </TableHead>
                                     <TableHead className="w-[110px]">Lead ID</TableHead>
                                     <TableHead>Lead & Contact</TableHead>
                                     <TableHead>Service Interested</TableHead>
@@ -519,76 +644,96 @@ export default function LeadTracking() {
                                     <TableHead>Source / Notes</TableHead>
                                     <TableHead className="text-right">Deal Value</TableHead>
                                     <TableHead className="text-right">Outstanding</TableHead>
-                                    <TableHead className="text-center w-[90px]">Actions</TableHead>
+                                    <TableHead className="text-center w-[120px]">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={9} className="text-center py-8">
+                                        <TableCell colSpan={10} className="text-center py-8">
                                             <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                                             <span className="text-xs text-muted-foreground mt-2 block">Loading lead tracking data...</span>
                                         </TableCell>
                                     </TableRow>
                                 ) : filteredRecords.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                                             No lead tracking records found. Click "Add Lead" or import from Google Sheets / Meta Ads.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredRecords.map((r) => (
-                                        <TableRow key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                                            <TableCell className="font-mono text-xs font-semibold text-purple-600">{r.lead_id_code}</TableCell>
-                                            <TableCell>
-                                                <div className="font-medium text-sm text-slate-900 dark:text-slate-100">{r.lead_name}</div>
-                                                {r.gmail && <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{r.gmail}</div>}
-                                                {r.phone && <div className="text-xs text-slate-400 flex items-center gap-1"><Phone className="h-3 w-3" />{r.phone}</div>}
-                                            </TableCell>
-                                            <TableCell className="text-xs font-medium">{r.service_interested || "N/A"}</TableCell>
-                                            <TableCell className="space-y-1">
-                                                <div>{getLeadStatusBadge(r.lead_status)}</div>
-                                                <div className="text-xs text-muted-foreground font-medium">{r.probability}% probability</div>
-                                            </TableCell>
-                                            <TableCell className="text-xs space-y-0.5">
-                                                <div><span className="text-slate-400">First Contact:</span> {r.first_contact_date || "-"}</div>
-                                                {r.next_follow_up_date && (
-                                                    <div className="text-amber-600 font-medium">
-                                                        <span className="text-slate-400">Next Follow-up:</span> {r.next_follow_up_date}
+                                    filteredRecords.map((r) => {
+                                        const isSelected = selectedLeadIds.includes(r.id);
+                                        return (
+                                            <TableRow key={r.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/30 ${isSelected ? 'bg-purple-50/40 dark:bg-purple-950/20' : ''}`}>
+                                                <TableCell className="text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSelect(r.id)}
+                                                        className="rounded border-slate-300 h-4 w-4 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                    />
+                                                </TableCell>
+                                                <TableCell className="font-mono text-xs font-semibold text-purple-600">{r.lead_id_code}</TableCell>
+                                                <TableCell>
+                                                    <div className="font-medium text-sm text-slate-900 dark:text-slate-100">{r.lead_name}</div>
+                                                    {r.gmail && <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{r.gmail}</div>}
+                                                    {r.phone && <div className="text-xs text-slate-400 flex items-center gap-1"><Phone className="h-3 w-3" />{r.phone}</div>}
+                                                </TableCell>
+                                                <TableCell className="text-xs font-medium">{r.service_interested || "N/A"}</TableCell>
+                                                <TableCell className="space-y-1">
+                                                    <div>{getLeadStatusBadge(r.lead_status)}</div>
+                                                    <div className="text-xs text-muted-foreground font-medium">{r.probability}% probability</div>
+                                                </TableCell>
+                                                <TableCell className="text-xs space-y-0.5">
+                                                    <div><span className="text-slate-400">First Contact:</span> {r.first_contact_date || "-"}</div>
+                                                    {r.next_follow_up_date && (
+                                                        <div className="text-amber-600 font-medium">
+                                                            <span className="text-slate-400">Next Follow-up:</span> {r.next_follow_up_date}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-xs max-w-[200px] truncate" title={r.notes || ""}>
+                                                    {r.notes?.includes("Meta") ? (
+                                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300">
+                                                            <Zap className="h-3 w-3 mr-1 fill-blue-500 text-blue-500" /> Meta Ads
+                                                        </Badge>
+                                                    ) : r.notes?.includes("Google Sheet") ? (
+                                                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
+                                                            <FileSpreadsheet className="h-3 w-3 mr-1 text-emerald-600" /> Google Sheet
+                                                        </Badge>
+                                                    ) : (
+                                                        r.notes || "-"
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-right font-medium text-xs text-emerald-600">₹{Number(r.value).toLocaleString("en-IN")}</TableCell>
+                                                <TableCell className="text-right font-semibold text-xs text-amber-600">₹{Number(r.outstanding_value).toLocaleString("en-IN")}</TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                                                            title="Move to Client Book & Client Tracking"
+                                                            onClick={() => convertToClientMutation.mutate([r])}
+                                                        >
+                                                            <UserCheck className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpen(r)} title="Edit Lead">
+                                                            <Edit className="h-4 w-4 text-blue-600" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Delete Lead" onClick={() => {
+                                                            if (confirm("Are you sure you want to delete this lead tracking record?")) {
+                                                                deleteMutation.mutate(r.id);
+                                                            }
+                                                        }}>
+                                                            <Trash2 className="h-4 w-4 text-red-600" />
+                                                        </Button>
                                                     </div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-xs max-w-[200px] truncate" title={r.notes || ""}>
-                                                {r.notes?.includes("Meta") ? (
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300">
-                                                        <Zap className="h-3 w-3 mr-1 fill-blue-500 text-blue-500" /> Meta Ads
-                                                    </Badge>
-                                                ) : r.notes?.includes("Google Sheet") ? (
-                                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
-                                                        <FileSpreadsheet className="h-3 w-3 mr-1 text-emerald-600" /> Google Sheet
-                                                    </Badge>
-                                                ) : (
-                                                    r.notes || "-"
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-right font-medium text-xs text-emerald-600">₹{Number(r.value).toLocaleString("en-IN")}</TableCell>
-                                            <TableCell className="text-right font-semibold text-xs text-amber-600">₹{Number(r.outstanding_value).toLocaleString("en-IN")}</TableCell>
-                                            <TableCell className="text-center">
-                                                <div className="flex items-center justify-center gap-1">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpen(r)}>
-                                                        <Edit className="h-4 w-4 text-blue-600" />
-                                                    </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                                                        if (confirm("Are you sure you want to delete this lead tracking record?")) {
-                                                            deleteMutation.mutate(r.id);
-                                                        }
-                                                    }}>
-                                                        <Trash2 className="h-4 w-4 text-red-600" />
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
                                 )}
                             </TableBody>
                         </Table>
