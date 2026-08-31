@@ -42,12 +42,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     transaction_categories JSONB DEFAULT '["General", "Salary", "Food", "Transport", "Utilities", "Entertainment", "Health", "Shopping", "Other"]'::jsonb,
     signature_url TEXT,
     background_logo_url TEXT,
-    background_logo_opacity INTEGER DEFAULT 5,
-    payment_details TEXT,
-    bank_name TEXT,
-    account_number TEXT,
-    ifsc_code TEXT,
-    branch_name TEXT,
+    payment_details TEXT DEFAULT 'Account Holder: ZenJourney Private Limited
+Bank Name: State Bank of India (SBI)
+Account Number: 45505327860
+Branch Name: Ulundurpet
+IFSC Code: SBIN0011071',
+    bank_name TEXT DEFAULT 'State Bank of India (SBI)',
+    account_number TEXT DEFAULT '45505327860',
+    ifsc_code TEXT DEFAULT 'SBIN0011071',
+    branch_name TEXT DEFAULT 'Ulundurpet',
     upi_id TEXT,
     last_login TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,

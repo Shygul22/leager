@@ -90,7 +90,7 @@ export default function Settings() {
                         default_currency: data.default_currency || "INR",
                         default_items: parsedItems,
                         transaction_categories: parsedCats,
-                        payment_details: data.payment_details || "Account Holder: DREAM LIFTS\nBank Name: BANK OF INDIA\nAccount Number: 806320110000322\nBranch Name: PERUNGALATHUR\nIFSC Code: BKID0008063",
+                        payment_details: data.payment_details || "Account Holder: ZenJourney Private Limited\nBank Name: State Bank of India (SBI)\nAccount Number: 45505327860\nBranch Name: Ulundurpet\nIFSC Code: SBIN0011071",
                         email: data.email || user?.email || "",
                         phone: data.phone || "",
                         pan: data.pan || "",
@@ -469,7 +469,7 @@ export default function Settings() {
                                     id="payment_details"
                                     value={profile.payment_details}
                                     onChange={(e) => setProfile({ ...profile, payment_details: e.target.value })}
-                                    placeholder="Account Holder Name: DREAM LIFTS&#10;Bank Name: BANK OF INDIA&#10;Account Number: 806320110000322&#10;Branch Name: PERUNGALATHUR&#10;IFSC Code: BKID0008063"
+                                    placeholder="Account Holder Name: ZenJourney Private Limited&#10;Bank Name: State Bank of India (SBI)&#10;Account Number: 45505327860&#10;Branch Name: Ulundurpet&#10;IFSC Code: SBIN0011071"
                                     className="min-h-[120px]"
                                 />
                             </div>

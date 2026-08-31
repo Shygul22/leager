@@ -12,11 +12,11 @@ import { numberToWords } from "@/utils/numberToWords";
 
 const parseBankDetails = (details: string | null) => {
   const defaultDetails = {
-    holder: "DREAM LIFTS",
-    bank: "BANK OF INDIA",
-    accNum: "806320110000322",
-    branch: "PERUNGALATHUR",
-    ifsc: "BKID0008063"
+    holder: "ZenJourney Private Limited",
+    bank: "State Bank of India (SBI)",
+    accNum: "45505327860",
+    branch: "Ulundurpet",
+    ifsc: "SBIN0011071"
   };
   if (!details) return defaultDetails;
   
