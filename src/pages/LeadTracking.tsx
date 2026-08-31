@@ -225,59 +225,78 @@ export default function LeadTracking() {
         }
         setIsSyncingSheet(true);
         try {
-            let csvUrl = sheetUrl;
-            if (sheetUrl.includes("/edit")) {
-                csvUrl = sheetUrl.replace(/\/edit.*$/, "/export?format=csv");
-            } else if (!sheetUrl.endsWith("/export?format=csv")) {
-                csvUrl = sheetUrl + "/export?format=csv";
-            }
+            // Extract Sheet Base Key (e.g. 152MTeyvxbjTCj4-tOpGTTPrWm-M31kHclkqy-hwEFWU)
+            const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            const sheetId = match ? match[1] : "";
 
-            const res = await fetch(csvUrl);
-            const text = await res.text();
+            const sheetNamesToTry = ["Sheet1", "Sheet2", "Sheet3", "Sheet4", "Leads"];
+            let totalInserted = 0;
 
-            const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-            if (lines.length <= 1) {
-                toast.error("Google Sheet appears empty or unreadable. Ensure link sharing is set to 'Anyone with link can view'.");
-                setIsSyncingSheet(false);
-                return;
-            }
+            for (const sName of sheetNamesToTry) {
+                try {
+                    let fetchUrl = "";
+                    if (sheetId) {
+                        fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sName)}`;
+                    } else {
+                        fetchUrl = sheetUrl.includes("/edit") 
+                            ? sheetUrl.replace(/\/edit.*$/, "/export?format=csv") 
+                            : sheetUrl;
+                    }
 
-            const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim().toLowerCase());
-            const rows = lines.slice(1);
+                    const res = await fetch(fetchUrl);
+                    const text = await res.text();
 
-            let insertedCount = 0;
-            for (const rowStr of rows) {
-                const rowValues = rowStr.split(",").map(v => v.replace(/^"|"$/g, "").trim());
-                const rowObj: Record<string, string> = {};
-                headers.forEach((h, i) => { rowObj[h] = rowValues[i] || ""; });
+                    if (!text || text.includes("<!DOCTYPE html") || text.includes("<html")) continue;
 
-                const leadName = rowObj["full_name"] || rowObj["lead_name"] || rowObj["name"] || "Imported Lead";
-                const email = rowObj["email"] || rowObj["gmail"] || null;
-                const phone = rowObj["phone_number"] || rowObj["phone"] || null;
-                const adName = rowObj["ad_name"] || rowObj["campaign_name"] || "";
-                const formName = rowObj["form_name"] || rowObj["service_interested"] || "Google Sheet Import";
-                const leadId = rowObj["id"] || rowObj["lead_id"] || "";
+                    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                    if (lines.length <= 1) continue;
 
-                const payload = {
-                    user_id: user?.id,
-                    lead_name: leadName,
-                    phone: phone,
-                    gmail: email,
-                    service_interested: formName + (adName ? ` (${adName})` : ""),
-                    notes: `Imported from Google Sheet (Lead ID: ${leadId}, Platform: ${rowObj["platform"] || 'Google Sheet'})`,
-                    lead_status: "new",
-                    probability: 60,
-                    value: 0,
-                    outstanding_value: 0,
-                    first_contact_date: rowObj["created_time"] ? rowObj["created_time"].split("T")[0] : new Date().toISOString().split("T")[0],
-                };
+                    const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim().toLowerCase());
+                    const rows = lines.slice(1);
 
-                const { error: insErr } = await supabase.from("lead_tracking").insert([payload]);
-                if (!insErr) insertedCount++;
+                    for (const rowStr of rows) {
+                        const rowValues = rowStr.split(",").map(v => v.replace(/^"|"$/g, "").trim());
+                        const rowObj: Record<string, string> = {};
+                        headers.forEach((h, i) => { rowObj[h] = rowValues[i] || ""; });
+
+                        let leadName = rowObj["full_name"] || rowObj["lead_name"] || rowObj["name"] || "";
+                        if (!leadName || leadName.includes("<test lead") || leadName.includes("dummy data")) continue;
+
+                        const email = rowObj["email"] || rowObj["gmail"] || null;
+                        const phone = (rowObj["phone_number"] || rowObj["phone"] || "").replace(/^p:/, "") || null;
+                        const adName = rowObj["ad_name"] || rowObj["campaign_name"] || "";
+                        const formName = rowObj["form_name"] || rowObj["service_interested"] || rowObj["what_type_of_development_are_you_primarily_interested_in?"] || "Google Sheet Lead";
+                        const city = rowObj["city"] ? ` - ${rowObj["city"]}` : "";
+                        const leadId = rowObj["id"] || rowObj["lead_id"] || "";
+
+                        const payload = {
+                            user_id: user?.id,
+                            lead_name: leadName,
+                            phone: phone,
+                            gmail: email,
+                            service_interested: formName + city + (adName ? ` (${adName})` : ""),
+                            notes: `Imported from Google Sheet [Tab: ${sName}] (Lead ID: ${leadId}, Platform: ${rowObj["platform"] || 'Meta Ads'})`,
+                            lead_status: "new",
+                            probability: 60,
+                            value: 0,
+                            outstanding_value: 0,
+                            first_contact_date: rowObj["created_time"] ? rowObj["created_time"].split("T")[0] : new Date().toISOString().split("T")[0],
+                        };
+
+                        const { error: insErr } = await supabase.from("lead_tracking").insert([payload]);
+                        if (!insErr) totalInserted++;
+                    }
+                } catch (tabErr) {
+                    console.warn(`Error reading sheet tab ${sName}:`, tabErr);
+                }
             }
 
             queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
-            toast.success(`Successfully imported ${insertedCount} lead(s) from Google Sheet!`);
+            if (totalInserted > 0) {
+                toast.success(`Successfully imported ${totalInserted} lead(s) across all Google Sheet tabs!`);
+            } else {
+                toast.info("Sync complete. All leads across tabs are up to date.");
+            }
             setSheetModalOpen(false);
         } catch (err: any) {
             toast.error(err.message || "Error syncing Google Sheet");
