@@ -70,6 +70,8 @@ export default function DocumentEditModal({
                 .from("documents")
                 .update({
                     name,
+                    title: name,
+                    file_name: name,
                     document_number: documentNumber || null,
                     description: description || null,
                     category

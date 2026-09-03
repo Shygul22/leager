@@ -16,7 +16,7 @@ interface DocumentUploadModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onUploadSuccess: () => void;
-    initialEntityType?: 'client' | 'employee' | 'bill' | 'transaction' | 'general';
+    initialEntityType?: 'client' | 'employee' | 'bill' | 'transaction' | 'general' | 'lead';
     initialEntityId?: string | null;
     initialCategory?: string;
     initialFile?: File | null;
@@ -48,7 +48,7 @@ export default function DocumentUploadModal({
     const [docDescription, setDocDescription] = useState("");
     
     const [category, setCategory] = useState<string>(initialCategory);
-    const [entityType, setEntityType] = useState<'client' | 'employee' | 'bill' | 'transaction' | 'general'>(initialEntityType);
+    const [entityType, setEntityType] = useState<'client' | 'employee' | 'bill' | 'transaction' | 'general' | 'lead'>(initialEntityType);
     const [entityId, setEntityId] = useState<string | null>(initialEntityId);
     const [isUploading, setIsUploading] = useState(false);
 
@@ -228,6 +228,8 @@ export default function DocumentUploadModal({
             // Insert metadata record in the database
             const { error: dbError } = await supabase.from("documents").insert({
                 name: docName.trim(),
+                title: docName.trim(),
+                file_name: docName.trim(),
                 document_number: docNumber.trim() || null,
                 description: docDescription.trim() || null,
                 file_path: finalFilePath,

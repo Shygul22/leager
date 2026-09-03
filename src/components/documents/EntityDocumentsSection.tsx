@@ -16,7 +16,7 @@ import { Document } from "@/types/document";
 
 interface EntityDocumentsSectionProps {
     entityId: string;
-    entityType: 'client' | 'employee' | 'bill' | 'transaction';
+    entityType: 'client' | 'employee' | 'bill' | 'transaction' | 'lead';
     title?: string;
     description?: string;
 }

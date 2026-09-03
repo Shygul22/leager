@@ -440,7 +440,7 @@ export default function Documents() {
     const hasFolderAccess = (folder: DocumentFolder) => {
         if (!role) return false;
         // Seed default folders or user created folders
-        return folder.allowed_roles.includes(role);
+        return (folder.allowed_roles || []).includes(role);
     };
 
     // Drag and Drop Handlers for Folder Targets

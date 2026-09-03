@@ -11,8 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download, UserCheck, ArrowRightLeft } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download, UserCheck, ArrowRightLeft, Eye, Paperclip } from "lucide-react";
 import { toast } from "sonner";
+import EntityDocumentsSection from "@/components/documents/EntityDocumentsSection";
+import DocumentUploadModal from "@/components/documents/DocumentUploadModal";
 
 type LeadTrackingRecord = {
     id: string;
@@ -42,6 +44,8 @@ export default function LeadTracking() {
     const [copiedToken, setCopiedToken] = useState(false);
 
     const [editingRecord, setEditingRecord] = useState<LeadTrackingRecord | null>(null);
+    const [previewLead, setPreviewLead] = useState<LeadTrackingRecord | null>(null);
+    const [uploadLead, setUploadLead] = useState<LeadTrackingRecord | null>(null);
     const [search, setSearch] = useState("");
     const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
 
@@ -713,6 +717,24 @@ export default function LeadTracking() {
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
+                                                            className="h-8 w-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                                                            title="View Lead Details & Documents"
+                                                            onClick={() => setPreviewLead(r)}
+                                                        >
+                                                            <Eye className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50"
+                                                            title="Upload Document for Lead"
+                                                            onClick={() => setUploadLead(r)}
+                                                        >
+                                                            <Paperclip className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
                                                             className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
                                                             title="Move to Client Book & Client Tracking"
                                                             onClick={() => convertToClientMutation.mutate([r])}
@@ -720,7 +742,7 @@ export default function LeadTracking() {
                                                             <UserCheck className="h-4 w-4" />
                                                         </Button>
                                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpen(r)} title="Edit Lead">
-                                                            <Edit className="h-4 w-4 text-blue-600" />
+                                                            <Edit className="h-4 w-4 text-purple-600" />
                                                         </Button>
                                                         <Button variant="ghost" size="icon" className="h-8 w-8" title="Delete Lead" onClick={() => {
                                                             if (confirm("Are you sure you want to delete this lead tracking record?")) {
@@ -1069,6 +1091,175 @@ export default function LeadTracking() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* View Lead Details & Documents Modal */}
+            <Dialog open={!!previewLead} onOpenChange={(open) => !open && setPreviewLead(null)}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    {previewLead && (
+                        <>
+                            <DialogHeader className="border-b pb-4">
+                                <div className="flex items-center justify-between pr-6">
+                                    <div>
+                                        <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                                            {previewLead.lead_name}
+                                            <span className="font-mono text-xs font-semibold text-purple-600 px-2 py-0.5 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 rounded">
+                                                {previewLead.lead_id_code}
+                                            </span>
+                                        </DialogTitle>
+                                        <DialogDescription className="mt-1">
+                                            Comprehensive lead profile, contact details, deal progress, and attached documents.
+                                        </DialogDescription>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {getLeadStatusBadge(previewLead.lead_status)}
+                                    </div>
+                                </div>
+                            </DialogHeader>
+
+                            <div className="space-y-6 py-4">
+                                {/* Quick Stats Grid */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                    <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-lg">
+                                        <span className="text-xs text-muted-foreground block font-medium">Deal Value</span>
+                                        <span className="text-lg font-bold text-emerald-600">₹{Number(previewLead.value).toLocaleString("en-IN")}</span>
+                                    </div>
+                                    <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 rounded-lg">
+                                        <span className="text-xs text-muted-foreground block font-medium">Outstanding Value</span>
+                                        <span className="text-lg font-bold text-amber-600">₹{Number(previewLead.outstanding_value).toLocaleString("en-IN")}</span>
+                                    </div>
+                                    <div className="p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg">
+                                        <span className="text-xs text-muted-foreground block font-medium">Conversion Probability</span>
+                                        <span className="text-lg font-bold text-blue-600">{previewLead.probability}%</span>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                                        <span className="text-xs text-muted-foreground block font-medium">Next Follow-up</span>
+                                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{previewLead.next_follow_up_date || "Not Scheduled"}</span>
+                                    </div>
+                                </div>
+
+                                {/* Detailed Lead Info Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-xl border">
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                                            <UserPlus className="h-4 w-4" /> Contact & Interest
+                                        </h4>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">Lead Name:</span>
+                                                <span className="font-semibold">{previewLead.lead_name}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">Phone Number:</span>
+                                                <span className="font-medium">
+                                                    {previewLead.phone ? (
+                                                        <a href={`tel:${previewLead.phone}`} className="text-purple-600 hover:underline flex items-center gap-1">
+                                                            <Phone className="h-3 w-3" /> {previewLead.phone}
+                                                        </a>
+                                                    ) : "N/A"}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">Email / Gmail:</span>
+                                                <span className="font-medium">
+                                                    {previewLead.gmail ? (
+                                                        <a href={`mailto:${previewLead.gmail}`} className="text-purple-600 hover:underline flex items-center gap-1">
+                                                            <Mail className="h-3 w-3" /> {previewLead.gmail}
+                                                        </a>
+                                                    ) : "N/A"}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between pb-1">
+                                                <span className="text-muted-foreground">Service Interested:</span>
+                                                <span className="font-medium text-slate-800 dark:text-slate-200">{previewLead.service_interested || "N/A"}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                                            <Target className="h-4 w-4" /> Timeline & Notes
+                                        </h4>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">First Contact Date:</span>
+                                                <span className="font-medium">{previewLead.first_contact_date || "N/A"}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">Quotation No:</span>
+                                                <span className="font-mono text-purple-600">{previewLead.quotation_no || "None"}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b pb-1.5">
+                                                <span className="text-muted-foreground">Created At:</span>
+                                                <span className="font-medium">{new Date(previewLead.created_at).toLocaleDateString("en-IN")}</span>
+                                            </div>
+                                            <div className="pt-1">
+                                                <span className="text-muted-foreground text-xs block mb-1">Source / Notes:</span>
+                                                <p className="text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 rounded border whitespace-pre-wrap">
+                                                    {previewLead.notes || "No notes added for this lead."}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Lead Documents Section */}
+                                <div className="border-t pt-4">
+                                    <EntityDocumentsSection 
+                                        entityId={previewLead.id} 
+                                        entityType="lead" 
+                                        title="Lead Documents & Attachments" 
+                                        description="Upload proposals, requirements, agreement drafts, or KYC documents specific to this lead." 
+                                    />
+                                </div>
+                            </div>
+
+                            <DialogFooter className="flex items-center justify-between border-t pt-4">
+                                <div className="flex items-center gap-2">
+                                    <Button 
+                                        variant="outline" 
+                                        className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                                        onClick={() => {
+                                            convertToClientMutation.mutate([previewLead]);
+                                            setPreviewLead(null);
+                                        }}
+                                    >
+                                        <UserCheck className="h-4 w-4 mr-2" />
+                                        Convert to Client
+                                    </Button>
+                                    <Button 
+                                        variant="outline"
+                                        onClick={() => {
+                                            handleOpen(previewLead);
+                                            setPreviewLead(null);
+                                        }}
+                                    >
+                                        <Edit className="h-4 w-4 mr-2 text-purple-600" />
+                                        Edit Lead Details
+                                    </Button>
+                                </div>
+                                <Button variant="secondary" onClick={() => setPreviewLead(null)}>
+                                    Close
+                                </Button>
+                            </DialogFooter>
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Direct Document Upload Modal for Lead */}
+            {uploadLead && (
+                <DocumentUploadModal
+                    open={!!uploadLead}
+                    onOpenChange={(open) => !open && setUploadLead(null)}
+                    onUploadSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ["documents", "lead", uploadLead.id] });
+                        queryClient.invalidateQueries({ queryKey: ["all-documents"] });
+                        toast.success(`Document uploaded for lead "${uploadLead.lead_name}"`);
+                    }}
+                    initialEntityType="lead"
+                    initialEntityId={uploadLead.id}
+                />
+            )}
         </div>
     );
 }

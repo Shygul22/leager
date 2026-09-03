@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS public.clients (
     phone TEXT,
     address TEXT,
     gstin TEXT,
+    msme_number TEXT,
+    currency TEXT DEFAULT 'INR',
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -136,11 +138,22 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
     client_name TEXT NOT NULL,
     client_email TEXT,
+    client_phone TEXT,
     client_address TEXT,
+    client_gstin TEXT,
+    client_msme_number TEXT,
+    client_num TEXT,
+    client_project_id TEXT,
     date DATE DEFAULT CURRENT_DATE NOT NULL,
     due_date DATE,
     status TEXT DEFAULT 'draft' NOT NULL CHECK (status IN ('draft', 'sent', 'paid', 'overdue', 'partially_paid', 'cancelled')),
+    paid_amount NUMERIC(15, 2) DEFAULT 0.00,
     discount_percentage NUMERIC(5, 2) DEFAULT 0.00,
+    payment_reference TEXT,
+    include_signature BOOLEAN DEFAULT true,
+    include_background BOOLEAN DEFAULT true,
+    currency TEXT DEFAULT 'INR',
+    exchange_rate NUMERIC(10, 4) DEFAULT 1.0,
     notes TEXT,
     terms TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
@@ -151,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
 CREATE TABLE IF NOT EXISTS public.invoice_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     invoice_id UUID REFERENCES public.invoices(id) ON DELETE CASCADE NOT NULL,
+    product_id UUID,
     description TEXT NOT NULL,
     quantity NUMERIC(10, 2) DEFAULT 1 NOT NULL,
     rate NUMERIC(15, 2) DEFAULT 0 NOT NULL,
@@ -230,10 +244,18 @@ CREATE TABLE IF NOT EXISTS public.quotations (
     client_email TEXT,
     client_phone TEXT,
     client_address TEXT,
+    client_gstin TEXT,
+    client_msme_number TEXT,
+    client_num TEXT,
+    client_project_id TEXT,
     date DATE DEFAULT CURRENT_DATE NOT NULL,
     valid_until DATE,
-    status TEXT DEFAULT 'draft' NOT NULL CHECK (status IN ('draft', 'sent', 'accepted', 'rejected', 'converted')),
+    status TEXT DEFAULT 'draft' NOT NULL,
     discount_percentage NUMERIC(5, 2) DEFAULT 0.00,
+    include_signature BOOLEAN DEFAULT true,
+    include_background BOOLEAN DEFAULT true,
+    currency TEXT DEFAULT 'INR',
+    exchange_rate NUMERIC(10, 4) DEFAULT 1.0,
     notes TEXT,
     terms TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -242,6 +264,7 @@ CREATE TABLE IF NOT EXISTS public.quotations (
 CREATE TABLE IF NOT EXISTS public.quotation_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     quotation_id UUID REFERENCES public.quotations(id) ON DELETE CASCADE NOT NULL,
+    product_id UUID,
     description TEXT NOT NULL,
     quantity NUMERIC(10, 2) DEFAULT 1 NOT NULL,
     rate NUMERIC(15, 2) DEFAULT 0 NOT NULL,
@@ -323,16 +346,27 @@ CREATE TABLE IF NOT EXISTS public.bugs (
 -- 16. DOCUMENTS LIBRARY & AUDIT LOGS
 CREATE TABLE IF NOT EXISTS public.document_folders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    parent_id UUID REFERENCES public.document_folders(id) ON DELETE CASCADE,
+    category TEXT UNIQUE,
+    color TEXT NOT NULL DEFAULT 'blue',
+    allowed_roles TEXT[] NOT NULL DEFAULT '{}',
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Ensure columns exist if table was created with older schema
+ALTER TABLE public.document_folders ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE public.document_folders ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT 'blue';
+ALTER TABLE public.document_folders ADD COLUMN IF NOT EXISTS allowed_roles TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE public.document_folders ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+
 
 CREATE TABLE IF NOT EXISTS public.documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    title TEXT,
+    file_name TEXT,
     file_path TEXT NOT NULL,
     file_type TEXT DEFAULT 'application/octet-stream',
     file_size INTEGER DEFAULT 0,
@@ -352,6 +386,13 @@ CREATE TABLE IF NOT EXISTS public.documents (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Ensure title/name/file_name column compatibility and drop accidental NOT NULL constraints
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS file_name TEXT;
+ALTER TABLE public.documents ALTER COLUMN title DROP NOT NULL;
+ALTER TABLE public.documents ALTER COLUMN file_name DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS public.document_audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

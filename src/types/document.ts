@@ -1,6 +1,8 @@
 export interface Document {
   id: string;
   name: string;
+  title?: string | null;
+  file_name?: string | null;
   file_path: string;
   file_type: string;
   file_size: number;
@@ -13,7 +15,7 @@ export interface Document {
   verified_by?: string | null;
   verified_at?: string | null;
   created_at: string;
-  entity_type?: 'client' | 'employee' | 'bill' | 'transaction' | 'general' | null;
+  entity_type?: 'client' | 'employee' | 'bill' | 'transaction' | 'general' | 'lead' | null;
   entity_id?: string | null;
   file_data?: string | null; // Base64 data fallback
   // Join properties for user profiles
