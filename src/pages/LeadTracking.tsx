@@ -10,8 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download, UserCheck, ArrowRightLeft, Eye, Paperclip } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Trash2, Edit, Search, Loader2, DollarSign, Calendar, Clock, UserPlus, Phone, Mail, FileText, Target, Globe, Copy, Check, Zap, ShieldCheck, FileSpreadsheet, Download, UserCheck, ArrowRightLeft, Eye, Paperclip, History, MessageSquare, Send, Sparkles, Tag, Layers } from "lucide-react";
 import { toast } from "sonner";
 import EntityDocumentsSection from "@/components/documents/EntityDocumentsSection";
 import DocumentUploadModal from "@/components/documents/DocumentUploadModal";
@@ -46,6 +46,12 @@ export default function LeadTracking() {
     const [editingRecord, setEditingRecord] = useState<LeadTrackingRecord | null>(null);
     const [previewLead, setPreviewLead] = useState<LeadTrackingRecord | null>(null);
     const [uploadLead, setUploadLead] = useState<LeadTrackingRecord | null>(null);
+    
+    // Activity History Log State
+    const [newLogNote, setNewLogNote] = useState("");
+    const [newLogStatus, setNewLogStatus] = useState<string>("");
+    const [newLogFollowUp, setNewLogFollowUp] = useState<string>("");
+    
     const [search, setSearch] = useState("");
     const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
 
@@ -423,13 +429,107 @@ export default function LeadTracking() {
             if (error) throw error;
         },
         onSuccess: () => {
+            toast.success("Lead tracking record deleted.");
             queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
-            toast.success("Lead deleted successfully");
         },
-        onError: (err: any) => {
-            toast.error(err.message || "Failed to delete lead");
+        onError: (err) => toast.error("Failed to delete record: " + (err as Error).message),
+    });
+
+    // Mutation to add Interaction / Follow-up History Log
+    const addActivityLogMutation = useMutation({
+        mutationFn: async () => {
+            if (!previewLead || !newLogNote.trim()) return;
+            const timestamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+            const logHeader = `[${timestamp}] ${user?.email?.split('@')[0] || "User"}: ${newLogNote.trim()}`;
+            const updatedNotes = previewLead.notes 
+                ? `${logHeader}\n\n${previewLead.notes}` 
+                : logHeader;
+
+            const updatePayload: any = { notes: updatedNotes };
+            if (newLogStatus) updatePayload.lead_status = newLogStatus;
+            if (newLogFollowUp) updatePayload.next_follow_up_date = newLogFollowUp;
+
+            const { error } = await supabase
+                .from("lead_tracking")
+                .update(updatePayload)
+                .eq("id", previewLead.id);
+
+            if (error) throw error;
+            return {
+                updatedNotes,
+                status: newLogStatus || previewLead.lead_status,
+                followUp: newLogFollowUp || previewLead.next_follow_up_date
+            };
+        },
+        onSuccess: (res) => {
+            if (res && previewLead) {
+                setPreviewLead({
+                    ...previewLead,
+                    notes: res.updatedNotes,
+                    lead_status: res.status as any,
+                    next_follow_up_date: res.followUp
+                });
+            }
+            setNewLogNote("");
+            setNewLogStatus("");
+            setNewLogFollowUp("");
+            toast.success("Interaction history log added!");
+            queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
+        },
+        onError: (err) => {
+            toast.error("Failed to save interaction log: " + (err as Error).message);
         }
     });
+
+    // Helper to parse notes for metadata badges and history entries
+    const parseLeadNotesData = (notesStr: string | null) => {
+        if (!notesStr) return { badges: [], historyEntries: [], rawText: "" };
+
+        const badges: { label: string; value: string }[] = [];
+        const historyEntries: { timestamp?: string; author?: string; text: string }[] = [];
+        const remainingText: string[] = [];
+
+        const lines = notesStr.split("\n");
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            if (line.startsWith("[") && line.includes("]")) {
+                const closingIdx = line.indexOf("]");
+                const timeStr = line.substring(1, closingIdx);
+                const rest = line.substring(closingIdx + 1).trim();
+                let author = "Staff";
+                let text = rest;
+                if (rest.includes(":")) {
+                    const [auth, ...txtParts] = rest.split(":");
+                    author = auth.trim();
+                    text = txtParts.join(":").trim();
+                }
+                historyEntries.push({ timestamp: timeStr, author, text });
+            } else if (line.includes("|")) {
+                const parts = line.split("|");
+                for (const part of parts) {
+                    if (part.includes(":")) {
+                        const [k, ...v] = part.split(":");
+                        badges.push({ label: k.trim(), value: v.join(":").trim() });
+                    }
+                }
+            } else if (line.includes(":") && (
+                line.toLowerCase().startsWith("timeline:") || 
+                line.toLowerCase().startsWith("fee:") || 
+                line.toLowerCase().startsWith("meta campaign:") ||
+                line.toLowerCase().startsWith("platform:")
+            )) {
+                const [k, ...v] = line.split(":");
+                badges.push({ label: k.trim(), value: v.join(":").trim() });
+            } else {
+                remainingText.push(line);
+            }
+        }
+
+        return { badges, historyEntries, rawText: remainingText.join("\n") };
+    };
 
     const handleOpen = (record?: LeadTrackingRecord) => {
         if (record) {
@@ -1095,154 +1195,302 @@ export default function LeadTracking() {
             {/* View Lead Details & Documents Modal */}
             <Dialog open={!!previewLead} onOpenChange={(open) => !open && setPreviewLead(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                    {previewLead && (
-                        <>
-                            <DialogHeader className="border-b pb-4">
-                                <div className="flex items-center justify-between pr-6">
-                                    <div>
-                                        <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                                            {previewLead.lead_name}
-                                            <span className="font-mono text-xs font-semibold text-purple-600 px-2 py-0.5 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 rounded">
-                                                {previewLead.lead_id_code}
-                                            </span>
-                                        </DialogTitle>
-                                        <DialogDescription className="mt-1">
-                                            Comprehensive lead profile, contact details, deal progress, and attached documents.
-                                        </DialogDescription>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {getLeadStatusBadge(previewLead.lead_status)}
-                                    </div>
-                                </div>
-                            </DialogHeader>
-
-                            <div className="space-y-6 py-4">
-                                {/* Quick Stats Grid */}
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                    <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-lg">
-                                        <span className="text-xs text-muted-foreground block font-medium">Deal Value</span>
-                                        <span className="text-lg font-bold text-emerald-600">₹{Number(previewLead.value).toLocaleString("en-IN")}</span>
-                                    </div>
-                                    <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 rounded-lg">
-                                        <span className="text-xs text-muted-foreground block font-medium">Outstanding Value</span>
-                                        <span className="text-lg font-bold text-amber-600">₹{Number(previewLead.outstanding_value).toLocaleString("en-IN")}</span>
-                                    </div>
-                                    <div className="p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg">
-                                        <span className="text-xs text-muted-foreground block font-medium">Conversion Probability</span>
-                                        <span className="text-lg font-bold text-blue-600">{previewLead.probability}%</span>
-                                    </div>
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
-                                        <span className="text-xs text-muted-foreground block font-medium">Next Follow-up</span>
-                                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{previewLead.next_follow_up_date || "Not Scheduled"}</span>
-                                    </div>
-                                </div>
-
-                                {/* Detailed Lead Info Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-xl border">
-                                    <div className="space-y-3">
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-                                            <UserPlus className="h-4 w-4" /> Contact & Interest
-                                        </h4>
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">Lead Name:</span>
-                                                <span className="font-semibold">{previewLead.lead_name}</span>
-                                            </div>
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">Phone Number:</span>
-                                                <span className="font-medium">
-                                                    {previewLead.phone ? (
-                                                        <a href={`tel:${previewLead.phone}`} className="text-purple-600 hover:underline flex items-center gap-1">
-                                                            <Phone className="h-3 w-3" /> {previewLead.phone}
-                                                        </a>
-                                                    ) : "N/A"}
+                    {previewLead && (() => {
+                        const { badges, historyEntries, rawText } = parseLeadNotesData(previewLead.notes);
+                        return (
+                            <>
+                                <DialogHeader className="border-b pb-4">
+                                    <div className="flex items-center justify-between pr-6">
+                                        <div>
+                                            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                                                {previewLead.lead_name}
+                                                <span className="font-mono text-xs font-semibold text-purple-600 px-2 py-0.5 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 rounded">
+                                                    {previewLead.lead_id_code}
                                                 </span>
-                                            </div>
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">Email / Gmail:</span>
-                                                <span className="font-medium">
-                                                    {previewLead.gmail ? (
-                                                        <a href={`mailto:${previewLead.gmail}`} className="text-purple-600 hover:underline flex items-center gap-1">
-                                                            <Mail className="h-3 w-3" /> {previewLead.gmail}
-                                                        </a>
-                                                    ) : "N/A"}
-                                                </span>
-                                            </div>
-                                            <div className="flex justify-between pb-1">
-                                                <span className="text-muted-foreground">Service Interested:</span>
-                                                <span className="font-medium text-slate-800 dark:text-slate-200">{previewLead.service_interested || "N/A"}</span>
-                                            </div>
+                                            </DialogTitle>
+                                            <DialogDescription className="mt-1">
+                                                Comprehensive lead profile, contact details, interaction history, and attached documents.
+                                            </DialogDescription>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {getLeadStatusBadge(previewLead.lead_status)}
                                         </div>
                                     </div>
+                                </DialogHeader>
 
-                                    <div className="space-y-3">
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-                                            <Target className="h-4 w-4" /> Timeline & Notes
-                                        </h4>
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">First Contact Date:</span>
-                                                <span className="font-medium">{previewLead.first_contact_date || "N/A"}</span>
+                                <Tabs defaultValue="overview" className="w-full mt-2">
+                                    <TabsList className="grid grid-cols-3 w-full max-w-md">
+                                        <TabsTrigger value="overview" className="flex items-center gap-1.5 text-xs">
+                                            <FileText className="h-3.5 w-3.5" />
+                                            Overview & Details
+                                        </TabsTrigger>
+                                        <TabsTrigger value="history" className="flex items-center gap-1.5 text-xs">
+                                            <History className="h-3.5 w-3.5" />
+                                            Activity History ({historyEntries.length})
+                                        </TabsTrigger>
+                                        <TabsTrigger value="documents" className="flex items-center gap-1.5 text-xs">
+                                            <Paperclip className="h-3.5 w-3.5" />
+                                            Documents
+                                        </TabsTrigger>
+                                    </TabsList>
+
+                                    {/* TAB 1: OVERVIEW & DETAILS */}
+                                    <TabsContent value="overview" className="space-y-6 pt-4">
+                                        {/* Quick Stats Grid */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                            <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-lg">
+                                                <span className="text-xs text-muted-foreground block font-medium">Deal Value</span>
+                                                <span className="text-lg font-bold text-emerald-600">₹{Number(previewLead.value).toLocaleString("en-IN")}</span>
                                             </div>
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">Quotation No:</span>
-                                                <span className="font-mono text-purple-600">{previewLead.quotation_no || "None"}</span>
+                                            <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 rounded-lg">
+                                                <span className="text-xs text-muted-foreground block font-medium">Outstanding Value</span>
+                                                <span className="text-lg font-bold text-amber-600">₹{Number(previewLead.outstanding_value).toLocaleString("en-IN")}</span>
                                             </div>
-                                            <div className="flex justify-between border-b pb-1.5">
-                                                <span className="text-muted-foreground">Created At:</span>
-                                                <span className="font-medium">{new Date(previewLead.created_at).toLocaleDateString("en-IN")}</span>
+                                            <div className="p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg">
+                                                <span className="text-xs text-muted-foreground block font-medium">Conversion Probability</span>
+                                                <span className="text-lg font-bold text-blue-600">{previewLead.probability}%</span>
                                             </div>
-                                            <div className="pt-1">
-                                                <span className="text-muted-foreground text-xs block mb-1">Source / Notes:</span>
-                                                <p className="text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 rounded border whitespace-pre-wrap">
-                                                    {previewLead.notes || "No notes added for this lead."}
+                                            <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
+                                                <span className="text-xs text-muted-foreground block font-medium">Next Follow-up</span>
+                                                <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{previewLead.next_follow_up_date || "Not Scheduled"}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Detailed Lead Info Grid */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-xl border">
+                                            <div className="space-y-3">
+                                                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                                                    <UserPlus className="h-4 w-4" /> Contact & Interest
+                                                </h4>
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">Lead Name:</span>
+                                                        <span className="font-semibold">{previewLead.lead_name}</span>
+                                                    </div>
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">Phone Number:</span>
+                                                        <span className="font-medium">
+                                                            {previewLead.phone ? (
+                                                                <a href={`tel:${previewLead.phone}`} className="text-purple-600 hover:underline flex items-center gap-1">
+                                                                    <Phone className="h-3 w-3" /> {previewLead.phone}
+                                                                </a>
+                                                            ) : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">Email / Gmail:</span>
+                                                        <span className="font-medium">
+                                                            {previewLead.gmail ? (
+                                                                <a href={`mailto:${previewLead.gmail}`} className="text-purple-600 hover:underline flex items-center gap-1">
+                                                                    <Mail className="h-3 w-3" /> {previewLead.gmail}
+                                                                </a>
+                                                            ) : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between pb-1">
+                                                        <span className="text-muted-foreground">Service Interested:</span>
+                                                        <span className="font-medium text-slate-800 dark:text-slate-200">{previewLead.service_interested || "N/A"}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                                                    <Target className="h-4 w-4" /> Deal Meta & Dates
+                                                </h4>
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">First Contact Date:</span>
+                                                        <span className="font-medium">{previewLead.first_contact_date || "N/A"}</span>
+                                                    </div>
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">Quotation No:</span>
+                                                        <span className="font-mono text-purple-600">{previewLead.quotation_no || "None"}</span>
+                                                    </div>
+                                                    <div className="flex justify-between border-b pb-1.5">
+                                                        <span className="text-muted-foreground">Lead Created Date:</span>
+                                                        <span className="font-medium">{new Date(previewLead.created_at).toLocaleDateString("en-IN")}</span>
+                                                    </div>
+                                                    <div className="flex justify-between pb-1">
+                                                        <span className="text-muted-foreground">Lead Source:</span>
+                                                        <span className="font-medium text-purple-700 dark:text-purple-300">
+                                                            {previewLead.notes?.includes("Meta") ? "Meta Lead Ads" : previewLead.notes?.includes("Google Sheet") ? "Google Sheet Import" : "Manual Entry"}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Parsed Requirements & Meta Campaign Card */}
+                                        {badges.length > 0 && (
+                                            <div className="p-4 bg-purple-50/40 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-xl space-y-3">
+                                                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                                                    <Sparkles className="h-4 w-4 text-purple-600" /> Parsed Requirements & Campaign Metadata
+                                                </h4>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {badges.map((b, idx) => (
+                                                        <Badge key={idx} variant="outline" className="bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-normal border-purple-200 shadow-sm flex items-center gap-1.5">
+                                                            <span className="font-semibold text-purple-800 dark:text-purple-300">{b.label}:</span>
+                                                            <span className="text-slate-700 dark:text-slate-200">{b.value}</span>
+                                                        </Badge>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Raw Notes / Interaction History Summary */}
+                                        {rawText && (
+                                            <div className="p-4 bg-slate-50 dark:bg-slate-900 border rounded-xl space-y-2">
+                                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Source / Notes Summary</span>
+                                                <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                                                    {rawText}
                                                 </p>
                                             </div>
+                                        )}
+                                    </TabsContent>
+
+                                    {/* TAB 2: ACTIVITY & INTERACTION HISTORY */}
+                                    <TabsContent value="history" className="space-y-6 pt-4">
+                                        {/* Log New Interaction Form */}
+                                        <Card className="border-purple-200 dark:border-purple-900 bg-purple-50/30 dark:bg-purple-950/10 shadow-sm">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="text-sm font-bold flex items-center gap-2 text-purple-900 dark:text-purple-200">
+                                                    <MessageSquare className="h-4 w-4 text-purple-600" /> Add Follow-up & Interaction Note
+                                                </CardTitle>
+                                                <CardDescription className="text-xs">
+                                                    Record client conversations, call feedback, demo updates, or schedule future follow-ups.
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="space-y-4">
+                                                <Textarea
+                                                    placeholder="Type follow-up details (e.g. Called client, interested in demo next week, requested quotation)..."
+                                                    value={newLogNote}
+                                                    onChange={(e) => setNewLogNote(e.target.value)}
+                                                    rows={3}
+                                                    className="bg-white dark:bg-slate-900 text-xs"
+                                                />
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <div className="space-y-1">
+                                                        <Label className="text-xs font-semibold text-slate-600">Update Lead Status (Optional)</Label>
+                                                        <Select value={newLogStatus} onValueChange={setNewLogStatus}>
+                                                            <SelectTrigger className="bg-white dark:bg-slate-900 text-xs h-9">
+                                                                <SelectValue placeholder={`Current: ${previewLead.lead_status}`} />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="new">New Lead</SelectItem>
+                                                                <SelectItem value="contacted">Contacted</SelectItem>
+                                                                <SelectItem value="qualified">Qualified</SelectItem>
+                                                                <SelectItem value="proposal_sent">Proposal Sent</SelectItem>
+                                                                <SelectItem value="negotiation">Negotiation</SelectItem>
+                                                                <SelectItem value="won">Won Deal</SelectItem>
+                                                                <SelectItem value="lost">Lost</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <Label className="text-xs font-semibold text-slate-600">Set Next Follow-up Date (Optional)</Label>
+                                                        <Input
+                                                            type="date"
+                                                            value={newLogFollowUp}
+                                                            onChange={(e) => setNewLogFollowUp(e.target.value)}
+                                                            className="bg-white dark:bg-slate-900 text-xs h-9"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-end">
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                                                        disabled={!newLogNote.trim() || addActivityLogMutation.isPending}
+                                                        onClick={() => addActivityLogMutation.mutate()}
+                                                    >
+                                                        {addActivityLogMutation.isPending ? (
+                                                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                                                        ) : (
+                                                            <Send className="h-4 w-4 mr-1.5" />
+                                                        )}
+                                                        Save History Log
+                                                    </Button>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Activity Log Feed */}
+                                        <div className="space-y-3">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                                                <History className="h-4 w-4" /> Activity History Timeline
+                                            </h4>
+                                            {historyEntries.length === 0 ? (
+                                                <div className="text-center py-8 border rounded-xl bg-slate-50/50 dark:bg-slate-900/20 text-muted-foreground text-xs">
+                                                    No specific interaction log entries recorded yet. Add your first note above!
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {historyEntries.map((entry, idx) => (
+                                                        <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs space-y-1.5">
+                                                            <div className="flex items-center justify-between text-xs">
+                                                                <span className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+                                                                    <UserCheck className="h-3.5 w-3.5 text-purple-500" />
+                                                                    {entry.author || "Team Member"}
+                                                                </span>
+                                                                {entry.timestamp && (
+                                                                    <span className="text-[11px] font-mono text-muted-foreground bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                                                        {entry.timestamp}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed pl-5 border-l-2 border-purple-300">
+                                                                {entry.text}
+                                                            </p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
+                                    </TabsContent>
+
+                                    {/* TAB 3: DOCUMENTS */}
+                                    <TabsContent value="documents" className="pt-4">
+                                        <EntityDocumentsSection 
+                                            entityId={previewLead.id} 
+                                            entityType="lead" 
+                                            title="Lead Documents & Attachments" 
+                                            description="Upload proposals, requirements, agreement drafts, or KYC documents specific to this lead." 
+                                        />
+                                    </TabsContent>
+                                </Tabs>
+
+                                <DialogFooter className="flex items-center justify-between border-t pt-4">
+                                    <div className="flex items-center gap-2">
+                                        <Button 
+                                            variant="outline" 
+                                            className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                                            onClick={() => {
+                                                convertToClientMutation.mutate([previewLead]);
+                                                setPreviewLead(null);
+                                            }}
+                                        >
+                                            <UserCheck className="h-4 w-4 mr-2" />
+                                            Convert to Client
+                                        </Button>
+                                        <Button 
+                                            variant="outline"
+                                            onClick={() => {
+                                                handleOpen(previewLead);
+                                                setPreviewLead(null);
+                                            }}
+                                        >
+                                            <Edit className="h-4 w-4 mr-2 text-purple-600" />
+                                            Edit Lead Details
+                                        </Button>
                                     </div>
-                                </div>
-
-                                {/* Lead Documents Section */}
-                                <div className="border-t pt-4">
-                                    <EntityDocumentsSection 
-                                        entityId={previewLead.id} 
-                                        entityType="lead" 
-                                        title="Lead Documents & Attachments" 
-                                        description="Upload proposals, requirements, agreement drafts, or KYC documents specific to this lead." 
-                                    />
-                                </div>
-                            </div>
-
-                            <DialogFooter className="flex items-center justify-between border-t pt-4">
-                                <div className="flex items-center gap-2">
-                                    <Button 
-                                        variant="outline" 
-                                        className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                                        onClick={() => {
-                                            convertToClientMutation.mutate([previewLead]);
-                                            setPreviewLead(null);
-                                        }}
-                                    >
-                                        <UserCheck className="h-4 w-4 mr-2" />
-                                        Convert to Client
+                                    <Button variant="secondary" onClick={() => setPreviewLead(null)}>
+                                        Close
                                     </Button>
-                                    <Button 
-                                        variant="outline"
-                                        onClick={() => {
-                                            handleOpen(previewLead);
-                                            setPreviewLead(null);
-                                        }}
-                                    >
-                                        <Edit className="h-4 w-4 mr-2 text-purple-600" />
-                                        Edit Lead Details
-                                    </Button>
-                                </div>
-                                <Button variant="secondary" onClick={() => setPreviewLead(null)}>
-                                    Close
-                                </Button>
-                            </DialogFooter>
-                        </>
-                    )}
+                                </DialogFooter>
+                            </>
+                        );
+                    })()}
                 </DialogContent>
             </Dialog>
 
