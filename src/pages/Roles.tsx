@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -99,13 +100,23 @@ export default function Roles() {
         setIsAdding(true);
         try {
             const userCompany = currentUserProfile?.company_name || account?.company_name || "ZenJourney InfoTech";
-            const { data, error } = await supabase.auth.signUp({
+            const activeAccId = account?.id || currentUserProfile?.account_id || null;
+
+            // Use isolated client so auth session of current Admin is NOT overwritten or logged out
+            const tempClient = createClient(
+                import.meta.env.VITE_SUPABASE_URL,
+                import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                { auth: { persistSession: false } }
+            );
+
+            const { data, error } = await tempClient.auth.signUp({
                 email: newEmail,
                 password: newPassword,
                 options: {
                     data: {
                         role: newRole,
-                        company_name: userCompany
+                        company_name: userCompany,
+                        full_name: newEmail.split("@")[0]
                     }
                 }
             });
@@ -113,16 +124,21 @@ export default function Roles() {
             if (error) throw error;
 
             if (data?.user) {
-                const activeAccId = account?.id || currentUserProfile?.account_id || null;
-                await supabase
+                // Upsert profile record via main authenticated admin client
+                const { error: profErr } = await supabase
                     .from("profiles")
-                    .update({
+                    .upsert({
+                        id: data.user.id,
                         role: newRole,
                         email: newEmail,
                         company_name: userCompany,
-                        account_id: activeAccId
-                    })
-                    .eq("id", data.user.id);
+                        account_id: activeAccId,
+                        full_name: newEmail.split("@")[0]
+                    }, { onConflict: "id" });
+
+                if (profErr) {
+                    console.warn("Profile upsert notice:", profErr.message);
+                }
 
                 if (activeAccId) {
                     await supabase.from("user_account_memberships").upsert([{
@@ -143,7 +159,7 @@ export default function Roles() {
                     details: { role: newRole }
                 }]);
                 
-                toast.success("User account created! They can now log in.");
+                toast.success(`User account "${newEmail}" created! They can now log in.`);
                 setAddOpen(false);
                 setNewEmail("");
                 setNewPassword("");
@@ -151,7 +167,7 @@ export default function Roles() {
             }
         } catch (err) {
             const error = err as Error;
-            toast.error(error.message);
+            toast.error(error.message || "Failed to create user");
         } finally {
             setIsAdding(false);
         }
