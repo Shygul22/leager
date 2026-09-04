@@ -113,18 +113,28 @@ export default function Roles() {
             if (error) throw error;
 
             if (data?.user) {
+                const activeAccId = account?.id || currentUserProfile?.account_id || null;
                 await supabase
                     .from("profiles")
                     .update({
                         role: newRole,
                         email: newEmail,
                         company_name: userCompany,
-                        account_id: account?.id || currentUserProfile?.account_id || null
+                        account_id: activeAccId
                     })
                     .eq("id", data.user.id);
 
+                if (activeAccId) {
+                    await supabase.from("user_account_memberships").upsert([{
+                        user_id: data.user.id,
+                        account_id: activeAccId,
+                        role: newRole,
+                        status: "active"
+                    }], { onConflict: "user_id,account_id" });
+                }
+
                 await supabase.from("audit_logs").insert([{
-                    account_id: account?.id || null,
+                    account_id: activeAccId,
                     actor_id: user?.id,
                     actor_email: user?.email,
                     action: "Create User Account",
@@ -289,8 +299,18 @@ export default function Roles() {
 
         if (currentUserRole !== "super_admin") {
             const myAccountId = account?.id || currentUserProfile?.account_id;
-            if (myAccountId && p.account_id) {
-                if (p.account_id !== myAccountId && p.id !== user?.id) {
+            const myCompany = (currentUserProfile?.company_name || account?.company_name || "").trim().toLowerCase();
+
+            if (p.id === user?.id) return true;
+
+            const profileAccountId = p.account_id;
+            const profileCompany = (p.company_name || "").trim().toLowerCase();
+
+            const matchesAccount = Boolean(myAccountId && profileAccountId && profileAccountId === myAccountId);
+            const matchesCompany = Boolean(myCompany && profileCompany && profileCompany === myCompany);
+
+            if (myAccountId || myCompany) {
+                if (!matchesAccount && !matchesCompany) {
                     return false;
                 }
             }
@@ -298,6 +318,7 @@ export default function Roles() {
 
         const query = search.toLowerCase();
         return (
+            !query ||
             (p.email?.toLowerCase().includes(query)) ||
             (p.full_name?.toLowerCase().includes(query)) ||
             (p.id.toLowerCase().includes(query)) ||
