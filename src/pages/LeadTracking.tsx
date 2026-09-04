@@ -335,14 +335,14 @@ export default function LeadTracking() {
         }
     });
 
-    // Convert / Move Lead(s) to Client Book & Client Tracking
+    // Convert / Move Lead(s) to Client Book
     const convertToClientMutation = useMutation({
         mutationFn: async (leadList: LeadTrackingRecord[]) => {
             if (!user) throw new Error("Unauthenticated");
 
             for (const lead of leadList) {
                 // 1. Insert into public.clients (Client Book)
-                const { data: newClient } = await supabase.from("clients").insert([{
+                await supabase.from("clients").insert([{
                     user_id: user.id,
                     name: lead.lead_name,
                     email: lead.gmail || null,
@@ -350,31 +350,16 @@ export default function LeadTracking() {
                     notes: lead.notes || "Converted from Lead Tracking",
                     category: "General",
                     status: "active"
-                }]).select().maybeSingle();
-
-                // 2. Insert into public.client_tracking
-                await supabase.from("client_tracking").insert([{
-                    user_id: user.id,
-                    client_id: newClient?.id || null,
-                    client_name: lead.lead_name,
-                    phone: lead.phone || null,
-                    service_type: lead.service_interested || "Software Services",
-                    project_status: "in_progress",
-                    payment_status: "unpaid",
-                    total_budget: Number(lead.value) || 0,
-                    amount_paid: 0,
-                    last_contact_date: new Date().toISOString().split("T")[0]
                 }]);
 
-                // 3. Mark lead status as "won"
+                // 2. Mark lead status as "won"
                 await supabase.from("lead_tracking").update({ lead_status: "won" }).eq("id", lead.id);
             }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["lead_tracking"] });
-            queryClient.invalidateQueries({ queryKey: ["client_tracking"] });
             queryClient.invalidateQueries({ queryKey: ["clients"] });
-            toast.success("Lead(s) moved to Client Book & Client Tracking!");
+            toast.success("Lead(s) moved to Client Book!");
             setSelectedLeadIds([]);
         },
         onError: (err: any) => {
@@ -706,7 +691,7 @@ export default function LeadTracking() {
                                     className="h-8 text-xs gap-1 border-emerald-500/40 text-emerald-600 hover:bg-emerald-50"
                                 >
                                     {convertToClientMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5 text-emerald-600" />}
-                                    Move to Client Book & Tracking
+                                    Move to Client Book
                                 </Button>
                                 <Button
                                     size="sm"
@@ -837,7 +822,7 @@ export default function LeadTracking() {
                                                             variant="ghost"
                                                             size="icon"
                                                             className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                                                            title="Move to Client Book & Client Tracking"
+                                                            title="Move to Client Book"
                                                             onClick={() => convertToClientMutation.mutate([r])}
                                                         >
                                                             <UserCheck className="h-4 w-4" />
