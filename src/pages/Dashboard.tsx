@@ -43,14 +43,16 @@ export default function Dashboard() {
     });
   };
 
+  const activeAccountId = account?.id || profile?.account_id;
+
   const { data: transactions = [] } = useQuery({
-    queryKey: ["transactions", user?.id, role, account?.id],
+    queryKey: ["transactions", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("transactions").select("*");
       
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -63,13 +65,13 @@ export default function Dashboard() {
   });
 
   const { data: bills = [] } = useQuery({
-    queryKey: ["bills", user?.id, role, account?.id],
+    queryKey: ["bills", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("bills").select("*, bill_items(*)");
       
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -82,13 +84,13 @@ export default function Dashboard() {
   });
 
   const { data: invoices = [] } = useQuery({
-    queryKey: ["invoices", user?.id, role, account?.id],
+    queryKey: ["invoices", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("invoices").select("*, invoice_items(*)");
       
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -101,12 +103,12 @@ export default function Dashboard() {
   });
 
   const { data: clients = [] } = useQuery({
-    queryKey: ["clients", user?.id, role, account?.id],
+    queryKey: ["clients", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("clients").select("*");
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -118,12 +120,12 @@ export default function Dashboard() {
   });
 
   const { data: quotations = [] } = useQuery({
-    queryKey: ["quotations", user?.id, role, account?.id],
+    queryKey: ["quotations", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("quotations").select("*, quotation_items(*)");
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }

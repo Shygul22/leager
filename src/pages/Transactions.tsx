@@ -55,13 +55,15 @@ export default function Transactions() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
 
+  const activeAccountId = account?.id || profile?.account_id;
+
   const { data: rawTransactions = [], isLoading, error: queryError, refetch: refetchTransactions } = useQuery({
-    queryKey: ["transactions", user?.id, role, account?.id],
+    queryKey: ["transactions", user?.id, role, activeAccountId],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("transactions").select("*");
-      if (account?.id) {
-        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -194,6 +196,7 @@ export default function Transactions() {
         date: values.date,
         employee_id: (values.employee_id === "none" || !values.employee_id) ? null : values.employee_id,
         client_id: (values.client_id === "none" || !values.client_id) ? null : values.client_id,
+        account_id: activeAccountId || null,
         user_id: user.id
       };
       if (values.id) {
