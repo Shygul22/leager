@@ -208,7 +208,12 @@ export default function Invoices() {
       } else {
         query = query.eq("user_id", user.id);
       }
-      const { data, error } = await query.order("name", { ascending: true });
+      let { data, error } = await query.order("name", { ascending: true });
+      if (error && (error.message?.includes("account_id") || error.code === "42703")) {
+        const fallback = await supabase.from("clients").select("*").eq("user_id", user.id).order("name", { ascending: true });
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error) throw error;
       return data;
     },
@@ -225,11 +230,16 @@ export default function Invoices() {
       } else {
         query = query.eq("user_id", user.id);
       }
-      const { data, error } = await query.order("created_at", { ascending: false });
+      let { data, error } = await query.order("created_at", { ascending: false });
+      if (error && (error.message?.includes("account_id") || error.code === "42703")) {
+        const fallback = await supabase.from("invoices").select("*, invoice_items(*)").eq("user_id", user.id).order("created_at", { ascending: false });
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error) throw error;
       return data as unknown as Invoice[];
     },
-    enabled: !!user && !!role,
+    enabled: !!user,
   });
 
   const { data: products = [] } = useQuery({
@@ -242,7 +252,12 @@ export default function Invoices() {
       } else {
         query = query.eq("user_id", user.id);
       }
-      const { data, error } = await query.order("name", { ascending: true });
+      let { data, error } = await query.order("name", { ascending: true });
+      if (error && (error.message?.includes("account_id") || error.code === "42703")) {
+        const fallback = await supabase.from("products").select("*").eq("user_id", user.id).order("name", { ascending: true });
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error) throw error;
       return data;
     },

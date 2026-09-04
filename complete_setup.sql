@@ -605,7 +605,30 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 21. INDEXES FOR HIGH-PERFORMANCE QUERYING
+-- 21. ENSURE ACCOUNT_ID COLUMNS EXIST ON ALL TENANT TABLES
+-- ============================================================================
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.bills ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.vendor_payouts ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.tickets ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.bugs ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.document_folders ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.shareholders ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.client_tracking ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.lead_tracking ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+ALTER TABLE public.facebook_lead_configs ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
+
+-- ============================================================================
+-- 22. INDEXES FOR HIGH-PERFORMANCE QUERYING
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON public.transactions(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_invoices_user_date ON public.invoices(user_id, date);
@@ -621,5 +644,6 @@ CREATE INDEX IF NOT EXISTS idx_memberships_user ON public.user_account_membershi
 CREATE INDEX IF NOT EXISTS idx_memberships_account ON public.user_account_memberships(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_account ON public.audit_logs(account_id);
 
--- 22. RELOAD SCHEMA CACHE
+-- 23. RELOAD SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';
+

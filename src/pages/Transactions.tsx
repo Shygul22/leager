@@ -66,7 +66,13 @@ export default function Transactions() {
         query = query.eq("user_id", user.id);
       }
       
-      const { data, error } = await query;
+      let { data, error } = await query;
+      if (error && (error.message?.includes("account_id") || error.code === "42703")) {
+        console.warn("transactions.account_id column missing, falling back to user_id filter:", error.message);
+        const fallback = await supabase.from("transactions").select("*").eq("user_id", user.id);
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error) {
         console.error("Error fetching transactions:", error);
         throw error;
