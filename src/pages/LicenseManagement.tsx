@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ export default function LicenseManagement() {
         duration_months: 12,
         admin_name: "",
         admin_email: "",
+        admin_password: "Temp@123456",
         admin_phone: ""
     });
 
@@ -104,7 +106,51 @@ export default function LicenseManagement() {
 
             if (accError) throw accError;
 
-            // 2. Create License Key with "pending" status
+            // 2. Create Primary Admin User in Supabase Auth if password provided
+            if (form.admin_email && form.admin_password) {
+                try {
+                    const tempClient = createClient(
+                        import.meta.env.VITE_SUPABASE_URL,
+                        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                        { auth: { persistSession: false } }
+                    );
+
+                    const { data: authData, error: authErr } = await tempClient.auth.signUp({
+                        email: form.admin_email,
+                        password: form.admin_password,
+                        options: {
+                            data: {
+                                role: "admin",
+                                company_name: form.company_name,
+                                account_id: newAccount.id,
+                                full_name: form.admin_name || form.admin_email.split("@")[0]
+                            }
+                        }
+                    });
+
+                    if (authData?.user) {
+                        await supabase.from("profiles").upsert({
+                            id: authData.user.id,
+                            role: "admin",
+                            email: form.admin_email,
+                            company_name: form.company_name,
+                            account_id: newAccount.id,
+                            full_name: form.admin_name || form.admin_email.split("@")[0]
+                        }, { onConflict: "id" });
+
+                        await supabase.from("user_account_memberships").upsert([{
+                            user_id: authData.user.id,
+                            account_id: newAccount.id,
+                            role: "admin",
+                            status: "active"
+                        }], { onConflict: "user_id,account_id" });
+                    }
+                } catch (signUpErr) {
+                    console.warn("Primary admin account auto-signup notice:", signUpErr);
+                }
+            }
+
+            // 3. Create License Key with "pending" status
             const newKey = generateLicenseKey();
             const { error: licError } = await supabase
                 .from("licenses")
@@ -119,7 +165,7 @@ export default function LicenseManagement() {
 
             if (licError) throw licError;
 
-            // 3. Log Audit Trail
+            // 4. Log Audit Trail
             await supabase.from("audit_logs").insert([{
                 account_id: newAccount.id,
                 actor_id: user?.id || null,
@@ -134,14 +180,24 @@ export default function LicenseManagement() {
         },
         onSuccess: (newKey) => {
             queryClient.invalidateQueries({ queryKey: ["super_admin_licenses"] });
-            toast.success(`Account & License Key ${newKey} generated successfully!`);
+            toast.success(`Account created! License: ${newKey} | Temp Password: ${form.admin_password || "Temp@123456"}`);
             setCreateModalOpen(false);
             setForm({
                 company_name: "",
-                admin_email: "",
+                account_code: "",
+                company_email: "",
+                phone: "",
+                address: "",
+                country: "United States",
+                tax_id: "",
                 plan: "Professional",
+                billing_cycle: "Annual",
                 user_limit: 5,
                 duration_months: 12,
+                admin_name: "",
+                admin_email: "",
+                admin_password: "Temp@123456",
+                admin_phone: ""
             });
         },
         onError: (err: any) => {
@@ -650,7 +706,7 @@ export default function LicenseManagement() {
                         </div>
 
                         <div className="font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider text-[11px] border-b pb-1 mt-4">3. Primary Account Administrator</div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <Label>Primary Admin Name</Label>
                                 <Input
@@ -666,6 +722,15 @@ export default function LicenseManagement() {
                                     placeholder="admin@company.com"
                                     value={form.admin_email}
                                     onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Temporary Password *</Label>
+                                <Input
+                                    type="text"
+                                    placeholder="Temp@123456"
+                                    value={form.admin_password}
+                                    onChange={(e) => setForm({ ...form, admin_password: e.target.value })}
                                 />
                             </div>
                         </div>
