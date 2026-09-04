@@ -67,7 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (data) {
                 const userProfile = data as Profile;
                 setProfile(userProfile);
-                const userRole = userProfile.role || "staff";
+                const isSuperAdminEmail = userProfile.email?.toLowerCase() === "shyguldigital@gmail.com";
+                const userRole = isSuperAdminEmail ? "super_admin" : (userProfile.role || "staff");
                 setRole(userRole);
 
                 // Fetch Account & License details if account_id is present
