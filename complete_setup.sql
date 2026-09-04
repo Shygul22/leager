@@ -608,6 +608,7 @@ END $$;
 -- 21. ENSURE ACCOUNT_ID COLUMNS EXIST ON ALL TENANT TABLES
 -- ============================================================================
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL;
+ALTER TABLE public.profiles ALTER COLUMN role TYPE TEXT USING role::text;
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
 ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE;

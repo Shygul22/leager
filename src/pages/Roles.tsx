@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -305,9 +305,27 @@ export default function Roles() {
         );
     });
 
+    const allRoleOptions = useMemo(() => {
+        const builtIn = ROLES.map(r => ({ value: r.value, label: r.label, isCustom: false }));
+        const custom = customRoles.map(cr => ({
+            value: cr.name,
+            label: `${cr.name} (Custom Role)`,
+            isCustom: true
+        }));
+        return [...builtIn, ...custom];
+    }, [customRoles]);
+
     const getRoleBadge = (roleValue: string | null) => {
-        const r = ROLES.find(r => r.value === roleValue) || { label: roleValue || "Unknown", color: "bg-slate-400" };
-        return <Badge className={`${r.color} text-white`}>{r.label}</Badge>;
+        if (!roleValue) return <Badge className="bg-slate-400 text-white">Unknown</Badge>;
+        const foundBuiltIn = ROLES.find(r => r.value === roleValue || r.label.toLowerCase() === roleValue.toLowerCase());
+        if (foundBuiltIn) {
+            return <Badge className={`${foundBuiltIn.color} text-white`}>{foundBuiltIn.label}</Badge>;
+        }
+        const foundCustom = customRoles.find(cr => cr.name.toLowerCase() === roleValue.toLowerCase());
+        if (foundCustom) {
+            return <Badge className="bg-indigo-600 text-white font-semibold">{foundCustom.name} (Custom)</Badge>;
+        }
+        return <Badge className="bg-purple-600 text-white">{roleValue}</Badge>;
     };
 
     const openEdit = (profile: Profile) => {
@@ -459,16 +477,16 @@ export default function Roles() {
                                                             <Edit className="h-4 w-4" />
                                                         </Button>
 
-                                                        <Select 
+                                                         <Select 
                                                             defaultValue={profile.role || "staff"} 
                                                             onValueChange={(val) => updateRole.mutate({ id: profile.id, role: val })}
                                                             disabled={profile.id === user?.id}
                                                         >
-                                                            <SelectTrigger className="w-[140px] h-8 text-xs">
+                                                            <SelectTrigger className="w-[160px] h-8 text-xs">
                                                                 <SelectValue placeholder="Change Role" />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                {ROLES.map(r => (
+                                                                {allRoleOptions.map(r => (
                                                                     <SelectItem key={r.value} value={r.value}>
                                                                         {r.label}
                                                                     </SelectItem>
@@ -665,7 +683,7 @@ export default function Roles() {
                                     <SelectValue placeholder="Select role" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {ROLES.map(r => (
+                                    {allRoleOptions.map(r => (
                                         <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
                                 </SelectContent>
