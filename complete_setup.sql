@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 2. ENUM TYPES
 DO $$ BEGIN
-    CREATE TYPE user_role AS ENUM ('admin', 'accounts_manager', 'project_manager', 'staff', 'ticket_support', 'client');
+    CREATE TYPE user_role AS ENUM ('super_admin', 'admin', 'accounts_manager', 'project_manager', 'staff', 'ticket_support', 'client');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 3. PROFILES TABLE (User Accounts & Roles)
@@ -575,8 +575,9 @@ CREATE INDEX IF NOT EXISTS idx_clients_user ON public.clients(user_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_user ON public.suppliers(user_id);
 CREATE INDEX IF NOT EXISTS idx_payouts_user ON public.vendor_payouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_shareholders_user ON public.shareholders(user_id);
-CREATE INDEX IF NOT EXISTS idx_client_tracking_user ON public.client_tracking(user_id);
-CREATE INDEX IF NOT EXISTS idx_lead_tracking_user ON public.lead_tracking(user_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_account_id ON public.licenses(account_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_license_key ON public.licenses(license_key);
+CREATE INDEX IF NOT EXISTS idx_profiles_account_id ON public.profiles(account_id);
 
 -- 21. RELOAD SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';

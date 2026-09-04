@@ -1,4 +1,4 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -15,15 +15,16 @@ import {
 } from "@/components/ui/sidebar";
 
 const adminItems = [
-  { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["admin", "accounts_manager"] },
-  { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["admin", "accounts_manager"] },
-  { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["admin", "accounts_manager"] },
-  { title: "Bills & Expenses", url: "/bills", icon: CreditCard, roles: ["admin", "accounts_manager"] },
-  { title: "Suppliers & Payouts", url: "/suppliers", icon: Truck, roles: ["admin", "accounts_manager"] },
-  { title: "Employees", url: "/employees", icon: UserCircle, roles: ["admin"] },
-  { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["admin"] },
-  { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["admin"] },
-  { title: "Settings", url: "/settings", icon: Settings, roles: ["admin"] },
+  { title: "License Keys & Accounts", url: "/licenses", icon: Key, roles: ["super_admin", "admin"] },
+  { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Bills & Expenses", url: "/bills", icon: CreditCard, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Suppliers & Payouts", url: "/suppliers", icon: Truck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
+  { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
+  { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
+  { title: "Settings", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
 const operationalItems = [

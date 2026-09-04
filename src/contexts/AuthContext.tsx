@@ -9,6 +9,24 @@ type Profile = {
     full_name?: string | null;
     company_name?: string | null;
     last_login?: string | null;
+    account_id?: string | null;
+    is_active?: boolean;
+};
+
+type AccountDetails = {
+    id: string;
+    company_name: string;
+    plan: string;
+    status: 'active' | 'suspended' | 'expired';
+    user_limit: number;
+};
+
+type LicenseDetails = {
+    id: string;
+    license_key: string;
+    status: 'pending' | 'active' | 'suspended' | 'expired';
+    expiry_date: string | null;
+    start_date: string | null;
 };
 
 type AuthContextType = {
@@ -16,6 +34,10 @@ type AuthContextType = {
     user: User | null;
     profile: Profile | null;
     role: string | null;
+    account: AccountDetails | null;
+    license: LicenseDetails | null;
+    accountStatus: string;
+    licenseStatus: string;
     loading: boolean;
     signOut: () => Promise<void>;
 };
@@ -27,9 +49,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [role, setRole] = useState<string | null>(null);
+    const [account, setAccount] = useState<AccountDetails | null>(null);
+    const [license, setLicense] = useState<LicenseDetails | null>(null);
+    const [accountStatus, setAccountStatus] = useState<string>("active");
+    const [licenseStatus, setLicenseStatus] = useState<string>("active");
     const [loading, setLoading] = useState(true);
 
-    const fetchProfile = async (userId: string) => {
+    const fetchProfileAndLicense = async (userId: string) => {
         try {
             const { data, error } = await supabase
                 .from("profiles")
@@ -39,13 +65,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (error) throw error;
             if (data) {
-                setProfile(data as Profile);
-                setRole(data.role || "staff");
+                const userProfile = data as Profile;
+                setProfile(userProfile);
+                const userRole = userProfile.role || "staff";
+                setRole(userRole);
+
+                // Fetch Account & License details if account_id is present
+                if (userProfile.account_id) {
+                    const { data: accData } = await supabase
+                        .from("accounts")
+                        .select("*")
+                        .eq("id", userProfile.account_id)
+                        .maybeSingle();
+
+                    if (accData) {
+                        setAccount(accData as AccountDetails);
+                        setAccountStatus(accData.status || "active");
+
+                        const { data: licData } = await supabase
+                            .from("licenses")
+                            .select("*")
+                            .eq("account_id", accData.id)
+                            .order("created_at", { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (licData) {
+                            setLicense(licData as LicenseDetails);
+                            setLicenseStatus(licData.status || "active");
+                        }
+                    }
+                } else {
+                    setAccount(null);
+                    setLicense(null);
+                    setAccountStatus("active");
+                    setLicenseStatus("active");
+                }
             } else {
                 setRole("staff");
+                setAccountStatus("active");
+                setLicenseStatus("active");
             }
         } catch (err) {
-            console.error("Error fetching profile:", err);
+            console.error("Error fetching profile and license:", err);
             setRole("staff");
         }
     };
@@ -69,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const currentUser = session?.user ?? null;
             setUser(currentUser);
             if (currentUser) {
-                fetchProfile(currentUser.id).finally(() => setLoading(false));
+                fetchProfileAndLicense(currentUser.id).finally(() => setLoading(false));
             } else {
                 setLoading(false);
             }
@@ -82,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(currentUser);
 
             if (currentUser) {
-                fetchProfile(currentUser.id);
+                fetchProfileAndLicense(currentUser.id);
 
                 // Stamp last_login on every fresh sign-in
                 if (event === "SIGNED_IN") {
@@ -91,6 +153,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setProfile(null);
                 setRole(null);
+                setAccount(null);
+                setLicense(null);
             }
         });
 
@@ -101,10 +165,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
         setProfile(null);
         setRole(null);
+        setAccount(null);
+        setLicense(null);
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, profile, role, loading, signOut }}>
+        <AuthContext.Provider value={{ session, user, profile, role, account, license, accountStatus, licenseStatus, loading, signOut }}>
             {children}
         </AuthContext.Provider>
     );

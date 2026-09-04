@@ -30,11 +30,13 @@ import Quotations from "./pages/Quotations";
 import Documents from "./pages/Documents";
 import AccessDirectory from "./pages/AccessDirectory";
 import LeadTracking from "./pages/LeadTracking";
+import LicenseManagement from "./pages/LicenseManagement";
 
 import NotFound from "./pages/NotFound";
-import { Loader2, Lock } from "lucide-react";
+import { Loader2, Lock, ShieldAlert } from "lucide-react";
 
 const ROLE_LEVELS: Record<string, number> = {
+  super_admin: 110,
   admin: 100,
   accounts_manager: 80,
   project_manager: 60,
@@ -44,6 +46,7 @@ const ROLE_LEVELS: Record<string, number> = {
 };
 
 const ROLE_LANDING_PAGES: Record<string, string> = {
+  super_admin: "/licenses",
   admin: "/dashboard",
   accounts_manager: "/dashboard",
   project_manager: "/projects",
@@ -53,7 +56,7 @@ const ROLE_LANDING_PAGES: Record<string, string> = {
 };
 
 const ProtectedRoute = ({ children, allowedRoles, minLevel }: { children: React.ReactNode, allowedRoles?: string[], minLevel?: number }) => {
-  const { user, role, loading } = useAuth();
+  const { user, role, accountStatus, licenseStatus, loading } = useAuth();
 
   // Show loader while session OR role is still being resolved
   if (loading || (user && role === null)) return (
@@ -64,6 +67,30 @@ const ProtectedRoute = ({ children, allowedRoles, minLevel }: { children: React.
   );
   
   if (!user) return <Navigate to="/auth" />;
+
+  // License Access Rule Enforcement: Admin Portal Access = Account Active + License Active + User Active
+  if (role !== 'super_admin' && (licenseStatus !== 'active' || accountStatus !== 'active')) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center min-h-[65vh] text-center p-6">
+          <div className="w-20 h-20 bg-amber-500/10 dark:bg-amber-500/20 rounded-full flex items-center justify-center mb-6">
+            <ShieldAlert className="h-10 w-10 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">Portal Access Gated</h1>
+          <p className="text-muted-foreground max-w-md mx-auto mb-6">
+            {licenseStatus === 'pending'
+              ? "Your account license key is currently pending activation by the Super Admin."
+              : licenseStatus === 'expired'
+              ? "Your account license has expired. Please contact support or your Super Admin to renew your subscription."
+              : "Your company account or license status is suspended."}
+          </p>
+          <div className="flex gap-4">
+            <Button variant="outline" onClick={() => supabase.auth.signOut()} size="lg" className="rounded-full px-8">Sign Out</Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   const userLevel = role ? ROLE_LEVELS[role] || 0 : 0;
   const isAllowed = 
@@ -124,27 +151,28 @@ const App = () => (
                 <AuthRedirect />
               </ProtectedRoute>
             } />
-            <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'staff', 'project_manager']}><Dashboard /></ProtectedRoute>} />
-            <Route path="/transactions" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Transactions /></ProtectedRoute>} />
-            <Route path="/invoices" element={<ProtectedRoute allowedRoles={['admin', 'staff']}><Invoices /></ProtectedRoute>} />
+            <Route path="/licenses" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><LicenseManagement /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'staff', 'project_manager']}><Dashboard /></ProtectedRoute>} />
+            <Route path="/transactions" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Transactions /></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']}><Invoices /></ProtectedRoute>} />
             <Route path="/public/invoice/:id" element={<PublicInvoice />} />
             <Route path="/portal" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
             <Route path="/portal/:clientNumber" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
-            <Route path="/clients" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Clients /></ProtectedRoute>} />
-            <Route path="/lead-tracking" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'project_manager', 'staff']}><LeadTracking /></ProtectedRoute>} />
-            <Route path="/products" element={<ProtectedRoute allowedRoles={['admin', 'staff']}><Products /></ProtectedRoute>} />
-            <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin']}><Suppliers /></ProtectedRoute>} />
-            <Route path="/bills" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
-            <Route path="/tax-reports" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><TaxReports /></ProtectedRoute>} />
-            <Route path="/shareholders" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager']}><Shareholders /></ProtectedRoute>} />
-            <Route path="/employees" element={<ProtectedRoute allowedRoles={['admin']}><Employees /></ProtectedRoute>} />
-            <Route path="/tickets" element={<ProtectedRoute allowedRoles={['admin', 'ticket_support']}><Tickets /></ProtectedRoute>} />
-            <Route path="/roles" element={<ProtectedRoute allowedRoles={['admin']}><Roles /></ProtectedRoute>} />
-            <Route path="/bug-tracker" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'ticket_support']}><BugTracker /></ProtectedRoute>} />
-            <Route path="/projects" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Projects /></ProtectedRoute>} />
-            <Route path="/quotations" element={<ProtectedRoute allowedRoles={['admin', 'project_manager', 'staff']}><Quotations /></ProtectedRoute>} />
-            <Route path="/documents" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'project_manager', 'staff']}><Documents /></ProtectedRoute>} />
-            <Route path="/access-directory" element={<ProtectedRoute allowedRoles={['admin']}><AccessDirectory /></ProtectedRoute>} />
+            <Route path="/clients" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager']}><Clients /></ProtectedRoute>} />
+            <Route path="/lead-tracking" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'project_manager', 'staff']}><LeadTracking /></ProtectedRoute>} />
+            <Route path="/products" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']}><Products /></ProtectedRoute>} />
+            <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Suppliers /></ProtectedRoute>} />
+            <Route path="/bills" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
+            <Route path="/tax-reports" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><TaxReports /></ProtectedRoute>} />
+            <Route path="/shareholders" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Shareholders /></ProtectedRoute>} />
+            <Route path="/employees" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Employees /></ProtectedRoute>} />
+            <Route path="/tickets" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'ticket_support']}><Tickets /></ProtectedRoute>} />
+            <Route path="/roles" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Roles /></ProtectedRoute>} />
+            <Route path="/bug-tracker" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'ticket_support']}><BugTracker /></ProtectedRoute>} />
+            <Route path="/projects" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager']}><Projects /></ProtectedRoute>} />
+            <Route path="/quotations" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'staff']}><Quotations /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'project_manager', 'staff']}><Documents /></ProtectedRoute>} />
+            <Route path="/access-directory" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><AccessDirectory /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute minLevel={10}><Settings /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
