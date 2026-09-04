@@ -177,11 +177,11 @@ export default function Roles() {
             return false;
         }
 
-        // 2. Multi-tenant company isolation: Regular admin only sees users matching their account/company
+        // 2. Multi-tenant isolation: If both have explicit account_id set and they differ, isolate them
         if (currentUserRole !== "super_admin") {
-            const myCompany = currentUserProfile?.company_name || account?.company_name;
-            if (myCompany && p.company_name) {
-                if (p.company_name !== myCompany && p.id !== user?.id) {
+            const myAccountId = account?.id || currentUserProfile?.account_id;
+            if (myAccountId && p.account_id) {
+                if (p.account_id !== myAccountId && p.id !== user?.id) {
                     return false;
                 }
             }
@@ -360,7 +360,7 @@ export default function Roles() {
                             />
                         </div>
                         <div className="text-sm text-muted-foreground">
-                            Total Users: {profiles.length}
+                            Total Users: {filteredProfiles.length}
                         </div>
                     </div>
                 </CardHeader>
