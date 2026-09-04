@@ -38,7 +38,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Quotations() {
-  const { user, role } = useAuth();
+  const { user, role, account } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,12 +68,13 @@ export default function Quotations() {
   });
 
   const { data: clients = [] } = useQuery({
-    queryKey: ["clients", user?.id, role],
+    queryKey: ["clients", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("clients").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });
@@ -84,12 +85,13 @@ export default function Quotations() {
   });
 
   const { data: quotations = [] } = useQuery({
-    queryKey: ["quotations", user?.id, role],
+    queryKey: ["quotations", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       let query = supabase.from("quotations").select("*, quotation_items(*)");
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("created_at", { ascending: false });
@@ -100,12 +102,13 @@ export default function Quotations() {
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ["products", user?.id, role],
+    queryKey: ["products", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("products").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });

@@ -38,7 +38,7 @@ type Project = {
 };
 
 export default function Projects() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -62,24 +62,37 @@ export default function Projects() {
     });
 
     const { data: clients = [] } = useQuery({
-        queryKey: ["clients", user?.id, role],
+        queryKey: ["clients", user?.id, role, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase.from("clients").select("*").order("name");
+            if (!user) return [];
+            let query = supabase.from("clients").select("*");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("name");
             if (error) throw error;
             return data;
-        }
+        },
+        enabled: !!user
     });
 
     const { data: projects = [], isLoading } = useQuery({
-        queryKey: ["projects", user?.id, role],
+        queryKey: ["projects", user?.id, role, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from("projects")
-                .select("*, clients(name), project_updates(*)")
-                .order("created_at", { ascending: false });
+            if (!user) return [];
+            let query = supabase.from("projects").select("*, clients(name), project_updates(*)");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("created_at", { ascending: false });
             if (error) throw error;
             return data as Project[];
-        }
+        },
+        enabled: !!user
     });
 
     const upsertProject = useMutation({

@@ -34,7 +34,7 @@ type Client = {
 };
 
 export default function Clients() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,12 +54,13 @@ export default function Clients() {
     });
 
     const { data: transactions = [] } = useQuery({
-        queryKey: ["transactions", user?.id, role],
+        queryKey: ["transactions", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("transactions").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("date", { ascending: false });
@@ -70,12 +71,13 @@ export default function Clients() {
     });
 
     const { data: invoices = [] } = useQuery({
-        queryKey: ["invoices", user?.id, role],
+        queryKey: ["invoices", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("invoices").select("*, invoice_items(*)");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query;
@@ -86,12 +88,13 @@ export default function Clients() {
     });
 
     const { data: quotations = [] } = useQuery({
-        queryKey: ["quotations", user?.id, role],
+        queryKey: ["quotations", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("quotations").select("*, quotation_items(*)");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query;
@@ -102,17 +105,13 @@ export default function Clients() {
     });
 
     const { data: clients = [], isLoading } = useQuery({
-        queryKey: ["clients", user?.id, role],
+        queryKey: ["clients", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
-            // 1. Fetch Clients
             let query = supabase.from("clients").select("*");
-            
-            // Hierarchy: Admin and Managers see everything. 
-            // In a company setup, we usually want Staff to see the shared client list too.
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             

@@ -54,7 +54,7 @@ export interface DividendRecord {
 const defaultShareholders: Shareholder[] = [];
 
 export default function Shareholders() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const [mainTab, setMainTab] = useState("cap-table");
 
     // Local Storage / DB Persisted Shareholders (Defaults to empty array)
@@ -95,10 +95,16 @@ export default function Shareholders() {
 
     // Fetch Live Transactions to compute Cash Net Profit
     const { data: transactions = [], isLoading: isLoadingTx } = useQuery({
-        queryKey: ["transactions-shareholders", user?.id],
+        queryKey: ["transactions-shareholders", user?.id, account?.id],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("transactions").select("*");
+            let query = supabase.from("transactions").select("*");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) return [];
             return data || [];
         },
@@ -107,10 +113,16 @@ export default function Shareholders() {
 
     // Fetch Live Invoices & Bills to compute Accrual Net Profit
     const { data: invoices = [] } = useQuery({
-        queryKey: ["invoices-shareholders", user?.id],
+        queryKey: ["invoices-shareholders", user?.id, account?.id],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("invoices").select("*, invoice_items(*)");
+            let query = supabase.from("invoices").select("*, invoice_items(*)");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) return [];
             return data || [];
         },
@@ -118,10 +130,16 @@ export default function Shareholders() {
     });
 
     const { data: bills = [] } = useQuery({
-        queryKey: ["bills-shareholders", user?.id],
+        queryKey: ["bills-shareholders", user?.id, account?.id],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase.from("bills").select("*, bill_items(*)");
+            let query = supabase.from("bills").select("*, bill_items(*)");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) return [];
             return data || [];
         },

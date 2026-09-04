@@ -36,7 +36,7 @@ type LeadTrackingRecord = {
 };
 
 export default function LeadTracking() {
-    const { user } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [metaModalOpen, setMetaModalOpen] = useState(false);
@@ -88,13 +88,16 @@ export default function LeadTracking() {
     });
 
     const { data: records = [], isLoading } = useQuery({
-        queryKey: ["lead_tracking", user?.id],
+        queryKey: ["lead_tracking", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
-            const { data, error } = await supabase
-                .from("lead_tracking")
-                .select("*")
-                .order("created_at", { ascending: false });
+            let query = supabase.from("lead_tracking").select("*");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("created_at", { ascending: false });
 
             if (error) throw error;
             return data as LeadTrackingRecord[];
@@ -384,6 +387,7 @@ export default function LeadTracking() {
                 value: Number(form.value) || 0,
                 outstanding_value: Number(form.outstanding_value) || 0,
                 first_contact_date: form.first_contact_date || null,
+                ...(account?.id ? { account_id: account.id } : {}),
             };
 
             if (editingRecord) {

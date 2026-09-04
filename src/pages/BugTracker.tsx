@@ -27,7 +27,7 @@ type BugReport = {
 };
 
 export default function BugTracker() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({
@@ -38,12 +38,16 @@ export default function BugTracker() {
     });
 
     const { data: bugs = [], isLoading } = useQuery({
-        queryKey: ["bug_reports"],
+        queryKey: ["bug_reports", user?.id, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from("bug_reports")
-                .select("*")
-                .order("created_at", { ascending: false });
+            if (!user) return [];
+            let query = supabase.from("bug_reports").select("*");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},reported_by.eq.${user.id}`);
+            } else {
+                query = query.eq("reported_by", user.id);
+            }
+            const { data, error } = await query.order("created_at", { ascending: false });
 
             if (error) {
                 if (error.message.includes("does not exist")) return [];
@@ -51,13 +55,17 @@ export default function BugTracker() {
             }
             return data as BugReport[];
         },
+        enabled: !!user,
     });
 
     const createBug = useMutation({
         mutationFn: async (newBug: any) => {
-            const { error } = await supabase.from("bug_reports").insert([
-                { ...newBug, reported_by: user?.id }
-            ]);
+            const payload = {
+                ...newBug,
+                reported_by: user?.id,
+                ...(account?.id ? { account_id: account.id } : {})
+            };
+            const { error } = await supabase.from("bug_reports").insert([payload]);
             if (error) throw error;
         },
         onSuccess: () => {

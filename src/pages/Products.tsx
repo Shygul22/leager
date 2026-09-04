@@ -34,7 +34,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 };
 
 export default function Products() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,16 +61,14 @@ export default function Products() {
     });
 
     const { data: products = [], isLoading } = useQuery({
-        queryKey: ["products", user?.id, role],
+        queryKey: ["products", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             
             let query = supabase.from("products").select("*");
-            
-            // Hierarchy: All staff see shared company products
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             
@@ -91,6 +89,7 @@ export default function Products() {
                 gst_rate: form.gst_rate || 0,
                 hsn_sac_code: form.hsn_sac_code || null,
                 type: form.type || "service",
+                ...(account?.id ? { account_id: account.id } : {}),
             };
 
             if (editingId) {

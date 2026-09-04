@@ -37,7 +37,7 @@ type TicketMessage = {
 };
 
 export default function Tickets() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -51,12 +51,18 @@ export default function Tickets() {
     });
 
     const { data: tickets = [], isLoading } = useQuery({
-        queryKey: ["support_tickets", user?.id, role],
+        queryKey: ["support_tickets", user?.id, role, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase
+            if (!user) return [];
+            let query = supabase
                 .from("support_tickets")
-                .select("*, clients(name)")
-                .order("created_at", { ascending: false });
+                .select("*, clients(name)");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query.order("created_at", { ascending: false });
 
             if (error) {
                 if (error.code === "PGRST116" || error.message.includes("does not exist")) {
@@ -70,31 +76,36 @@ export default function Tickets() {
                 client_name: t.clients?.name || "No Client"
             }));
         },
-        enabled: !!user && !!role,
+        enabled: !!user,
     });
 
 
     const { data: clients = [] } = useQuery({
-        queryKey: ["clients", user?.id, role],
+        queryKey: ["clients", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("clients").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("name", { ascending: true });
             if (error) throw error;
             return data;
         },
-        enabled: !!user && !!role,
+        enabled: !!user,
     });
 
     const createTicket = useMutation({
         mutationFn: async (newTicket: any) => {
-            const { error } = await supabase.from("support_tickets").insert([
-                { ...newTicket, user_id: user?.id, client_id: newTicket.client_id === "none" ? null : newTicket.client_id }
-            ]);
+            const payload = {
+                ...newTicket,
+                user_id: user?.id,
+                client_id: newTicket.client_id === "none" ? null : newTicket.client_id,
+                ...(account?.id ? { account_id: account.id } : {})
+            };
+            const { error } = await supabase.from("support_tickets").insert([payload]);
             if (error) throw error;
         },
         onSuccess: () => {

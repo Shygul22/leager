@@ -71,7 +71,7 @@ const DEFAULT_FOLDERS: DocumentFolder[] = [
 ];
 
 export default function Documents() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     
     // UI state
@@ -111,51 +111,60 @@ export default function Documents() {
 
     // Fetch custom folders dynamically from the database
     const { data: folders = [], refetch: refetchFolders } = useQuery({
-        queryKey: ["document-folders"],
+        queryKey: ["document-folders", user?.id, account?.id],
         queryFn: async () => {
             try {
-                const { data, error } = await supabase
-                    .from("document_folders")
-                    .select("*")
-                    .order("created_at", { ascending: true });
+                let query = supabase.from("document_folders").select("*");
+                if (account?.id) {
+                    query = query.or(`account_id.eq.${account.id},created_by.eq.${user?.id}`);
+                }
+                const { data, error } = await query.order("created_at", { ascending: true });
 
                 console.log("DEBUG: Supabase returned folders:", data, "error:", error);
 
                 if (error) {
                     console.error("document_folders table query returned error:", error);
                     setDbError("Query error: " + error.message);
-                    toast.error("Failed to load custom folders: " + error.message);
                     return DEFAULT_FOLDERS;
                 }
                 setDbError(null);
                 const result = data && data.length > 0 ? (data as DocumentFolder[]) : DEFAULT_FOLDERS;
-                console.log("DEBUG: final folders resolved list:", result);
                 return result;
             } catch (err) {
                 console.error("document_folders query failed:", err);
                 setDbError("Fetch error: " + (err as Error).message);
-                toast.error("Failed to load custom folders: " + (err as Error).message);
                 return DEFAULT_FOLDERS;
             }
-        }
+        },
+        enabled: !!user,
     });
 
     // Fetch all documents matching the user's role access (RLS-controlled)
     const { data: documents = [], isLoading: isLoadingDocs, refetch, isFetching } = useQuery({
-        queryKey: ["all-documents"],
+        queryKey: ["all-documents", user?.id, account?.id],
         queryFn: async () => {
             try {
-                const { data, error } = await supabase
+                let query = supabase
                     .from("documents")
-                    .select("*, uploader_profile:profiles!uploaded_by(full_name, email), verifier_profile:profiles!verified_by(full_name)")
-                    .order("created_at", { ascending: false });
+                    .select("*, uploader_profile:profiles!uploaded_by(full_name, email), verifier_profile:profiles!verified_by(full_name)");
+                if (account?.id) {
+                    query = query.or(`account_id.eq.${account.id},uploaded_by.eq.${user?.id}`);
+                } else if (user?.id) {
+                    query = query.eq("uploaded_by", user.id);
+                }
+                const { data, error } = await query.order("created_at", { ascending: false });
 
                 if (error) {
                     console.warn("Documents profile join failed, attempting plain select:", error.message);
-                    const fallback = await supabase
+                    let fallbackQuery = supabase
                         .from("documents")
-                        .select("*")
-                        .order("created_at", { ascending: false });
+                        .select("*");
+                    if (account?.id) {
+                        fallbackQuery = fallbackQuery.or(`account_id.eq.${account.id},uploaded_by.eq.${user?.id}`);
+                    } else if (user?.id) {
+                        fallbackQuery = fallbackQuery.eq("uploaded_by", user.id);
+                    }
+                    const fallback = await fallbackQuery.order("created_at", { ascending: false });
 
                     if (!fallback.error) {
                         return (fallback.data || []) as Document[];

@@ -26,7 +26,7 @@ import VendorPayoutCreateModal from "@/components/suppliers/VendorPayoutCreateMo
 import VendorPayoutDetailsModal from "@/components/suppliers/VendorPayoutDetailsModal";
 
 export default function Suppliers() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
 
     // UI state
@@ -69,12 +69,13 @@ export default function Suppliers() {
 
     // Fetch All Suppliers
     const { data: suppliers = [], isLoading: isLoadingSuppliers, error: supplierError, refetch: refetchSuppliers } = useQuery({
-        queryKey: ["suppliers", user?.id, role],
+        queryKey: ["suppliers", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("suppliers").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("created_at", { ascending: false });
@@ -86,12 +87,13 @@ export default function Suppliers() {
 
     // Fetch All Vendor Payouts
     const { data: payouts = [], isLoading: isLoadingPayouts } = useQuery({
-        queryKey: ["vendor-payouts", user?.id, role],
+        queryKey: ["vendor-payouts", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("vendor_payouts").select("*, supplier:suppliers(*)");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("created_at", { ascending: false });
@@ -103,12 +105,17 @@ export default function Suppliers() {
 
     // Fetch All Purchase Bills for analytics
     const { data: allBills = [] } = useQuery({
-        queryKey: ["all-bills-analytics"],
+        queryKey: ["all-bills-analytics", user?.id, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase.from("bills").select("*, bill_items(*)");
+            let query = supabase.from("bills").select("*, bill_items(*)");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            }
+            const { data, error } = await query;
             if (error) return [];
             return data || [];
-        }
+        },
+        enabled: !!user,
     });
 
     // Add / Edit Supplier Mutation

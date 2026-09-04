@@ -140,7 +140,7 @@ const getTotal = (items?: InvoiceItem[], discountPercentage?: number) => {
 };
 
 export default function Invoices() {
-  const { user, role } = useAuth();
+  const { user, role, account } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // Renamed from editing to editingId to avoid conflict with Transaction type
@@ -179,21 +179,11 @@ export default function Invoices() {
 
   const handlePaidAmountChange = (val: number) => {
     const total = getTotal(form.items, form.discount_percentage);
-    setForm(prev => {
-      let nextStatus = prev.status;
-      if (val >= total && total > 0) {
-        nextStatus = "paid";
-      } else if (val > 0) {
-        nextStatus = "partially_paid";
-      } else {
-        nextStatus = "draft";
-      }
-      return {
-        ...prev,
-        paid_amount: val,
-        status: nextStatus
-      };
-    });
+    let newStatus = form.status;
+    if (val >= total && total > 0) newStatus = "paid";
+    else if (val > 0 && val < total) newStatus = "partially_paid";
+    else if (val === 0) newStatus = "draft";
+    setForm(prev => ({ ...prev, paid_amount: val, status: newStatus }));
   };
 
 
@@ -209,12 +199,13 @@ export default function Invoices() {
   });
 
   const { data: clients = [] } = useQuery({
-    queryKey: ["clients", user?.id, role],
+    queryKey: ["clients", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("clients").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });
@@ -224,16 +215,14 @@ export default function Invoices() {
     enabled: !!user,
   });
 
-  // This query was changed in the diff to fetch transactions, but the file is Invoices.tsx.
-  // Reverting to fetch invoices as per original context, but keeping the Transaction type definition.
   const { data: invoices = [] } = useQuery({
-    queryKey: ["invoices", user?.id, role],
+    queryKey: ["invoices", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
-      // Hierarchy: All staff see shared company invoices
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
       let query = supabase.from("invoices").select("*, invoice_items(*)");
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("created_at", { ascending: false });
@@ -244,12 +233,13 @@ export default function Invoices() {
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ["products", user?.id, role],
+    queryKey: ["products", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("products").select("*");
-      const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       const { data, error } = await query.order("name", { ascending: true });

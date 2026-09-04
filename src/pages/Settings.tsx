@@ -11,12 +11,13 @@ import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import { Plus, X, Receipt, Trash2, Zap, ArrowLeftRight, CreditCard } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 export default function Settings() {
-    const { user, role, signOut } = useAuth();
-    const isAdmin = role === "admin";
+    const { user, role, account, license, signOut } = useAuth();
+    const isAdmin = role === "admin" || role === "super_admin";
     const [loading, setLoading] = useState(true);
+    const [isUpgrading, setIsUpgrading] = useState(false);
     const [profile, setProfile] = useState({
         company_name: "",
         address: "",
@@ -659,6 +660,103 @@ export default function Settings() {
                             <Button onClick={updateProfile} disabled={loading} className="w-full mt-4">
                                 {loading ? "Saving..." : "Save Categories"}
                             </Button>
+                        </CardContent>
+                    </Card>
+
+                    {/* Subscription & Billing Card for Account Admin */}
+                    <Card className="border-primary/20 bg-primary/5">
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                            <div>
+                                <CardTitle className="text-xl flex items-center gap-2">
+                                    <CreditCard className="h-5 w-5 text-primary" /> Company Subscription & Billing
+                                </CardTitle>
+                                <CardDescription>Manage subscription plans, view company billing, and upgrade your plan.</CardDescription>
+                            </div>
+                            <Badge variant={account?.status === 'active' ? 'default' : 'destructive'} className="text-xs px-3 py-1 uppercase font-bold">
+                                {account?.status || 'Active'}
+                            </Badge>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-background p-4 rounded-xl border">
+                                <div>
+                                    <p className="text-xs text-muted-foreground font-medium uppercase">Assigned Account</p>
+                                    <p className="text-base font-bold text-foreground mt-1">{account?.company_name || profile.company_name || 'My Company'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-muted-foreground font-medium uppercase">Current Active Plan</p>
+                                    <Badge variant="outline" className="mt-1 font-bold text-primary border-primary">
+                                        {account?.plan || 'Starter'} Plan
+                                    </Badge>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-muted-foreground font-medium uppercase">License Status</p>
+                                    <p className="text-sm font-semibold text-foreground mt-1">{license?.expiry_date ? format(new Date(license.expiry_date), 'dd MMM yyyy') : 'Lifetime / Active'}</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <h4 className="text-sm font-bold text-foreground">Available Plans (INR pricing)</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {[
+                                        { name: "Starter", price: "₹2,999", period: "/month", users: "Up to 5 Users", storage: "5GB Storage", features: ["Standard Ledger", "Basic Tax Reports", "Quotation & Invoicing"] },
+                                        { name: "Professional", price: "₹7,999", period: "/month", users: "Up to 25 Users", storage: "50GB Storage", features: ["Advanced Analytics", "Custom Roles", "Audit Trail Logs", "Priority Support"] },
+                                        { name: "Enterprise", price: "₹19,999", period: "/month", users: "Unlimited Users", storage: "500GB Storage", features: ["Multi-Account Portal", "Custom RLS Policies", "Dedicated Account Manager", "Unlimited API Integrations"] }
+                                    ].map((planItem) => {
+                                        const isCurrent = (account?.plan || "Starter").toLowerCase() === planItem.name.toLowerCase();
+                                        return (
+                                            <div key={planItem.name} className={`p-4 rounded-xl border transition-all ${isCurrent ? 'border-primary bg-primary/10 shadow-md ring-1 ring-primary' : 'border-border bg-card'}`}>
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <h5 className="font-bold text-base">{planItem.name}</h5>
+                                                    {isCurrent && <Badge className="bg-primary text-primary-foreground text-xs">Current Plan</Badge>}
+                                                </div>
+                                                <div className="mb-3">
+                                                    <span className="text-2xl font-extrabold text-foreground">{planItem.price}</span>
+                                                    <span className="text-xs text-muted-foreground">{planItem.period}</span>
+                                                </div>
+                                                <ul className="text-xs space-y-1.5 text-muted-foreground mb-4">
+                                                    <li className="font-medium text-foreground">✓ {planItem.users}</li>
+                                                    <li className="font-medium text-foreground">✓ {planItem.storage}</li>
+                                                    {planItem.features.map((f, i) => (
+                                                        <li key={i}>✓ {f}</li>
+                                                    ))}
+                                                </ul>
+                                                <Button 
+                                                    disabled={isCurrent || isUpgrading} 
+                                                    onClick={async () => {
+                                                        if (!account?.id) {
+                                                            toast.error("No active account selected");
+                                                            return;
+                                                        }
+                                                        setIsUpgrading(true);
+                                                        try {
+                                                            const { error } = await supabase.from("accounts").update({ plan: planItem.name }).eq("id", account.id);
+                                                            if (error) throw error;
+                                                            await supabase.from("audit_logs").insert([{
+                                                                user_id: user?.id,
+                                                                user_email: user?.email,
+                                                                account_id: account.id,
+                                                                action: `Subscription changed to ${planItem.name}`,
+                                                                module: "Billing",
+                                                                status: "SUCCESS"
+                                                            }]);
+                                                            toast.success(`Upgraded to ${planItem.name} plan successfully!`);
+                                                            window.location.reload();
+                                                        } catch (err: any) {
+                                                            toast.error(err.message || "Failed to upgrade subscription");
+                                                        } finally {
+                                                            setIsUpgrading(false);
+                                                        }
+                                                    }} 
+                                                    variant={isCurrent ? "outline" : "default"} 
+                                                    className="w-full text-xs font-semibold"
+                                                >
+                                                    {isCurrent ? "Active Plan" : `Upgrade to ${planItem.name}`}
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
                 </>

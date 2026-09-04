@@ -46,7 +46,7 @@ const getCurrencySymbol = (currency?: string | null) => {
     }
 };
 export default function Bills() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,12 +86,13 @@ export default function Bills() {
 
 
     const { data: employees = [] } = useQuery({
-        queryKey: ["employees", user?.id, role],
+        queryKey: ["employees", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("employees").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("name", { ascending: true });
@@ -102,12 +103,13 @@ export default function Bills() {
     });
 
     const { data: suppliers = [] } = useQuery({
-        queryKey: ["suppliers", user?.id, role],
+        queryKey: ["suppliers", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("suppliers").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query.order("name", { ascending: true });
@@ -118,15 +120,16 @@ export default function Bills() {
     });
 
     const { data: bills = [], isLoading } = useQuery({
-        queryKey: ["bills", user?.id, role],
+        queryKey: ["bills", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase
                 .from("bills")
                 .select("*, suppliers(name), employees(name), bill_items(*)");
             
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             

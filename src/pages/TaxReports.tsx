@@ -15,69 +15,80 @@ import ComplianceDashboard from "@/components/tax/ComplianceDashboard";
 import TaxLedger from "@/components/tax/TaxLedger";
 
 export default function TaxReports() {
-    const { user, role } = useAuth();
+    const { user, role, account } = useAuth();
     const [mainTab, setMainTab] = useState<string>("compliance");
     const [dateRange, setDateRange] = useState("current"); // current, last, last3, all
 
     // Fetch Invoices
     const { data: invoices = [], refetch: refetchInvoices } = useQuery({
-        queryKey: ["invoices-tax", user?.id, role],
+        queryKey: ["invoices-tax", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("invoices").select("*, invoice_items(*)");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query;
             if (error) throw error;
             return data || [];
         },
-        enabled: !!user && !!role,
+        enabled: !!user,
     });
 
     // Fetch Bills
     const { data: bills = [], refetch: refetchBills } = useQuery({
-        queryKey: ["bills-tax", user?.id, role],
+        queryKey: ["bills-tax", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("bills").select("*, bill_items(*)");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query;
             if (error) throw error;
             return data || [];
         },
-        enabled: !!user && !!role,
+        enabled: !!user,
     });
 
     // Fetch All Transactions (Income & Expense)
     const { data: transactions = [], refetch: refetchTransactions } = useQuery({
-        queryKey: ["transactions-tax", user?.id, role],
+        queryKey: ["transactions-tax", user?.id, role, account?.id],
         queryFn: async () => {
             if (!user) return [];
             let query = supabase.from("transactions").select("*");
-            const isStaffOrAbove = role && ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-            if (!isStaffOrAbove) {
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
                 query = query.eq("user_id", user.id);
             }
             const { data, error } = await query;
             if (error) return [];
             return data || [];
         },
-        enabled: !!user && !!role,
+        enabled: !!user,
     });
 
     // Fetch Payroll Employees
     const { data: employees = [] } = useQuery({
-        queryKey: ["employees-tax"],
+        queryKey: ["employees-tax", user?.id, account?.id],
         queryFn: async () => {
-            const { data, error } = await supabase.from("employees").select("*");
+            if (!user) return [];
+            let query = supabase.from("employees").select("*");
+            if (account?.id) {
+                query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+            } else {
+                query = query.eq("user_id", user.id);
+            }
+            const { data, error } = await query;
             if (error) return [];
             return data || [];
-        }
+        },
+        enabled: !!user,
     });
 
     const handleRefetchAll = () => {
