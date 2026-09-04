@@ -33,7 +33,7 @@ const ROLES = [
 ];
 
 export default function Roles() {
-    const { user, role: currentUserRole } = useAuth();
+    const { user, profile: currentUserProfile, role: currentUserRole, account } = useAuth();
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
     const [addOpen, setAddOpen] = useState(false);
@@ -54,12 +54,14 @@ export default function Roles() {
     const handleAddUser = async () => {
         setIsAdding(true);
         try {
+            const userCompany = currentUserProfile?.company_name || account?.company_name || "ZenJourney InfoTech";
             const { data, error } = await supabase.auth.signUp({
                 email: newEmail,
                 password: newPassword,
                 options: {
                     data: {
-                        role: newRole
+                        role: newRole,
+                        company_name: userCompany
                     }
                 }
             });
@@ -67,10 +69,15 @@ export default function Roles() {
             if (error) throw error;
 
             if (data?.user) {
-                // Manually update the profile role if the trigger hasn't finished
+                // Update profile role and company_name to match current tenant
                 await supabase
                     .from("profiles")
-                    .update({ role: newRole, email: newEmail })
+                    .update({
+                        role: newRole,
+                        email: newEmail,
+                        company_name: userCompany,
+                        account_id: account?.id || currentUserProfile?.account_id || null
+                    })
                     .eq("id", data.user.id);
                 
                 toast.success("User account created! They can now log in.");
@@ -98,7 +105,7 @@ export default function Roles() {
             if (error) throw error;
             return data as Profile[];
         },
-        enabled: currentUserRole === "admin",
+        enabled: currentUserRole === "admin" || currentUserRole === "super_admin",
     });
 
     const updateRole = useMutation({
@@ -164,11 +171,31 @@ export default function Roles() {
         }
     });
 
-    const filteredProfiles = profiles.filter(p => 
-        (p.email?.toLowerCase().includes(search.toLowerCase())) ||
-        (p.full_name?.toLowerCase().includes(search.toLowerCase())) ||
-        (p.id.toLowerCase().includes(search.toLowerCase()))
-    );
+    const filteredProfiles = profiles.filter(p => {
+        // 1. Hide super_admin accounts from regular admins
+        if (currentUserRole !== "super_admin" && (p.role === "super_admin" || p.email?.toLowerCase() === "shyguldigital@gmail.com")) {
+            return false;
+        }
+
+        // 2. Multi-tenant company isolation: Regular admin only sees users matching their account/company
+        if (currentUserRole !== "super_admin") {
+            const myCompany = currentUserProfile?.company_name || account?.company_name;
+            if (myCompany && p.company_name) {
+                if (p.company_name !== myCompany && p.id !== user?.id) {
+                    return false;
+                }
+            }
+        }
+
+        // 3. Search query filter
+        const query = search.toLowerCase();
+        return (
+            (p.email?.toLowerCase().includes(query)) ||
+            (p.full_name?.toLowerCase().includes(query)) ||
+            (p.id.toLowerCase().includes(query)) ||
+            (p.role?.toLowerCase().includes(query))
+        );
+    });
 
     const getRoleBadge = (roleValue: string | null) => {
         const r = ROLES.find(r => r.value === roleValue) || { label: roleValue || "Unknown", color: "bg-slate-400" };
@@ -185,7 +212,7 @@ export default function Roles() {
         setEditOpen(true);
     };
 
-    if (currentUserRole !== "admin") {
+    if (currentUserRole !== "admin" && currentUserRole !== "super_admin") {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
                 <ShieldCheck className="h-16 w-16 text-destructive mb-4 opacity-20" />
