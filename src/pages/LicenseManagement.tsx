@@ -44,7 +44,7 @@ const generateLicenseKey = () => {
 };
 
 export default function LicenseManagement() {
-    const { user, role } = useAuth();
+    const { user, role, impersonateAccount } = useAuth();
     const queryClient = useQueryClient();
     const [createModalOpen, setCreateModalOpen] = useState(false);
     const [copiedKey, setCopiedKey] = useState<string | null>(null);
