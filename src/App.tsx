@@ -31,6 +31,7 @@ import Documents from "./pages/Documents";
 import AccessDirectory from "./pages/AccessDirectory";
 import LeadTracking from "./pages/LeadTracking";
 import LicenseManagement from "./pages/LicenseManagement";
+import AuditLogs from "./pages/AuditLogs";
 import { LicenseLockScreen } from "@/components/LicenseLockScreen";
 
 import NotFound from "./pages/NotFound";
@@ -159,6 +160,7 @@ const App = () => (
             <Route path="/quotations" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'staff']}><Quotations /></ProtectedRoute>} />
             <Route path="/documents" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'project_manager', 'staff']}><Documents /></ProtectedRoute>} />
             <Route path="/access-directory" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><AccessDirectory /></ProtectedRoute>} />
+            <Route path="/audit-logs" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><AuditLogs /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute minLevel={10}><Settings /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />

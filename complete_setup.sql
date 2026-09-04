@@ -546,9 +546,48 @@ CREATE TABLE IF NOT EXISTS public.facebook_lead_configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 20. SAAS MULTI-TENANT ROLES, MEMBERSHIPS & AUDIT LOGS
+CREATE TABLE IF NOT EXISTS public.custom_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID REFERENCES public.accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.user_account_memberships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    account_id UUID NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'staff',
+    custom_role_id UUID REFERENCES public.custom_roles(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, account_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
+    actor_id UUID,
+    actor_email TEXT,
+    action TEXT NOT NULL,
+    module TEXT NOT NULL,
+    target TEXT,
+    details JSONB DEFAULT '{}'::jsonb,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE public.client_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lead_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.facebook_lead_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.custom_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_account_memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- Helper macro to grant open policy
 DO $$ 
@@ -566,7 +605,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 20. INDEXES FOR HIGH-PERFORMANCE QUERYING
+-- 21. INDEXES FOR HIGH-PERFORMANCE QUERYING
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON public.transactions(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_invoices_user_date ON public.invoices(user_id, date);
@@ -578,7 +617,9 @@ CREATE INDEX IF NOT EXISTS idx_shareholders_user ON public.shareholders(user_id)
 CREATE INDEX IF NOT EXISTS idx_licenses_account_id ON public.licenses(account_id);
 CREATE INDEX IF NOT EXISTS idx_licenses_license_key ON public.licenses(license_key);
 CREATE INDEX IF NOT EXISTS idx_profiles_account_id ON public.profiles(account_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON public.user_account_memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_account ON public.user_account_memberships(account_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_account ON public.audit_logs(account_id);
 
--- 21. RELOAD SCHEMA CACHE
+-- 22. RELOAD SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';
-

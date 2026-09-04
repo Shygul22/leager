@@ -3,11 +3,12 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { UserCircle, Eye, LogOut } from "lucide-react";
+import { UserCircle, Eye, Building } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { role, profile, impersonatedAccount, exitImpersonation } = useAuth();
+  const { role, profile, account, userAccounts, switchAccount, impersonatedAccount, exitImpersonation } = useAuth();
 
   const formatRole = (r: string | null) => {
     if (!r) return "Guest";
@@ -59,6 +60,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <header className="h-12 flex items-center justify-between border-b px-4 bg-background">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
+                {userAccounts && userAccounts.length > 1 && (
+                  <Select value={account?.id} onValueChange={(val) => switchAccount(val)}>
+                    <SelectTrigger className="w-[190px] h-8 text-xs font-semibold bg-muted/60 border-muted">
+                      <Building className="h-3.5 w-3.5 mr-1.5 text-primary" />
+                      <SelectValue placeholder="Switch Account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userAccounts.map(acc => (
+                        <SelectItem key={acc.id} value={acc.id} className="text-xs font-medium">
+                          {acc.company_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <div className="hidden sm:flex flex-col items-end mr-1">
@@ -66,7 +82,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     {profile?.full_name || profile?.email?.split('@')[0] || "User"}
                   </span>
                   <span className="text-[10px] text-muted-foreground leading-tight">
-                    {impersonatedAccount ? impersonatedAccount.company_name : "Member"}
+                    {account ? account.company_name : "Member"}
                   </span>
                 </div>
                 <Badge className={`${getRoleColor(role)} text-white border-none px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider`}>

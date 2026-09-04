@@ -109,6 +109,18 @@ export default function LicenseManagement() {
                 }]);
 
             if (licError) throw licError;
+
+            // 3. Log Audit Trail
+            await supabase.from("audit_logs").insert([{
+                account_id: newAccount.id,
+                actor_id: user?.id || null,
+                actor_email: user?.email || "super_admin",
+                action: "Generate Account & License",
+                module: "Account & License",
+                target: form.company_name,
+                details: { license_key: newKey, plan: form.plan, user_limit: form.user_limit }
+            }]);
+
             return newKey;
         },
         onSuccess: (newKey) => {
@@ -149,6 +161,17 @@ export default function LicenseManagement() {
             if (lic.account_id) {
                 await supabase.from("accounts").update({ status: "active" }).eq("id", lic.account_id);
             }
+
+            // Log Audit Trail
+            await supabase.from("audit_logs").insert([{
+                account_id: lic.account_id,
+                actor_id: user?.id || null,
+                actor_email: user?.email || "super_admin",
+                action: "Activate License",
+                module: "License",
+                target: lic.license_key,
+                details: { company: lic.accounts?.company_name, expiry_date: expiryDate.toISOString() }
+            }]);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["super_admin_licenses"] });

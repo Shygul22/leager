@@ -38,6 +38,8 @@ type AuthContextType = {
     license: LicenseDetails | null;
     accountStatus: string;
     licenseStatus: string;
+    userAccounts: AccountDetails[];
+    switchAccount: (accountId: string) => Promise<void>;
     impersonatedAccount: AccountDetails | null;
     impersonateAccount: (acc: AccountDetails) => void;
     exitImpersonation: () => void;
@@ -53,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [role, setRole] = useState<string | null>(null);
     const [account, setAccount] = useState<AccountDetails | null>(null);
+    const [userAccounts, setUserAccounts] = useState<AccountDetails[]>([]);
     const [license, setLicense] = useState<LicenseDetails | null>(null);
     const [accountStatus, setAccountStatus] = useState<string>("active");
     const [licenseStatus, setLicenseStatus] = useState<string>("active");
@@ -220,18 +223,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => subscription.unsubscribe();
     }, []);
 
+    const switchAccount = async (targetAccountId: string) => {
+        try {
+            const { data: accData } = await supabase
+                .from("accounts")
+                .select("*")
+                .eq("id", targetAccountId)
+                .maybeSingle();
+
+            if (accData) {
+                setAccount(accData as AccountDetails);
+                setAccountStatus(accData.status || "active");
+                sessionStorage.setItem("active_user_account_id", targetAccountId);
+
+                const { data: licData } = await supabase
+                    .from("licenses")
+                    .select("*")
+                    .eq("account_id", accData.id)
+                    .order("created_at", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (licData) {
+                    setLicense(licData as LicenseDetails);
+                    setLicenseStatus(licData.status || "pending");
+                }
+            }
+        } catch (err) {
+            console.error("Error switching account:", err);
+        }
+    };
+
     const signOut = async () => {
         sessionStorage.removeItem("super_admin_impersonated_account");
+        sessionStorage.removeItem("active_user_account_id");
         await supabase.auth.signOut();
         setProfile(null);
         setRole(null);
         setAccount(null);
+        setUserAccounts([]);
         setLicense(null);
         setImpersonatedAccount(null);
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, profile, role, account, license, accountStatus, licenseStatus, impersonatedAccount, impersonateAccount, exitImpersonation, loading, signOut }}>
+        <AuthContext.Provider value={{ session, user, profile, role, account, userAccounts, switchAccount, license, accountStatus, licenseStatus, impersonatedAccount, impersonateAccount, exitImpersonation, loading, signOut }}>
             {children}
         </AuthContext.Provider>
     );

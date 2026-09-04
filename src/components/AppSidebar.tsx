@@ -1,4 +1,4 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key, History } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -24,6 +24,7 @@ const adminItems = [
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
   { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
+  { title: "Audit Trail", url: "/audit-logs", icon: History, roles: ["super_admin", "admin"] },
   { title: "Settings", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
