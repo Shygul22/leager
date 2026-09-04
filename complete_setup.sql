@@ -435,16 +435,27 @@ CREATE TABLE IF NOT EXISTS public.shareholders (
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+  meta_acc_id text;
+  meta_company text;
 BEGIN
-  INSERT INTO public.profiles (id, email, full_name, role, company_name)
+  meta_acc_id := new.raw_user_meta_data->>'account_id';
+  meta_company := COALESCE(new.raw_user_meta_data->>'company_name', 'ZENJOURNEY PRIVATE LIMITED');
+  
+  INSERT INTO public.profiles (id, email, full_name, role, company_name, account_id)
   VALUES (
     new.id,
     new.email,
     COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    'admin'::public.user_role,
-    'ZENJOURNEY PRIVATE LIMITED'
+    COALESCE(new.raw_user_meta_data->>'role', 'staff'),
+    meta_company,
+    CASE WHEN meta_acc_id IS NOT NULL AND meta_acc_id != '' THEN meta_acc_id::uuid ELSE NULL END
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    role = EXCLUDED.role,
+    company_name = EXCLUDED.company_name,
+    account_id = COALESCE(EXCLUDED.account_id, public.profiles.account_id);
+    
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

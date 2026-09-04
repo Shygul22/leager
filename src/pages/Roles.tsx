@@ -116,6 +116,7 @@ export default function Roles() {
                     data: {
                         role: newRole,
                         company_name: userCompany,
+                        account_id: activeAccId,
                         full_name: newEmail.split("@")[0]
                     }
                 }
@@ -323,12 +324,13 @@ export default function Roles() {
             const profileCompany = (p.company_name || "").trim().toLowerCase();
 
             const matchesAccount = Boolean(myAccountId && profileAccountId && profileAccountId === myAccountId);
-            const matchesCompany = Boolean(myCompany && profileCompany && profileCompany === myCompany);
+            const matchesCompany = Boolean(myCompany && profileCompany && (profileCompany.includes(myCompany) || myCompany.includes(profileCompany)));
 
-            if (myAccountId || myCompany) {
-                if (!matchesAccount && !matchesCompany) {
-                    return false;
-                }
+            // If profile has an account_id, require account match. Otherwise, require company match or show for admin
+            if (myAccountId && profileAccountId) {
+                if (!matchesAccount) return false;
+            } else if (myCompany && profileCompany) {
+                if (!matchesCompany) return false;
             }
         }
 
