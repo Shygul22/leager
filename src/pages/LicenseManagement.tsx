@@ -603,9 +603,9 @@ export default function LicenseManagement() {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Starter">Starter ($49/mo)</SelectItem>
-                                        <SelectItem value="Professional">Professional ($149/mo)</SelectItem>
-                                        <SelectItem value="Enterprise">Enterprise ($499/mo)</SelectItem>
+                                        <SelectItem value="Starter">Starter (₹2,999/mo)</SelectItem>
+                                        <SelectItem value="Professional">Professional (₹7,999/mo)</SelectItem>
+                                        <SelectItem value="Enterprise">Enterprise (₹19,999/mo)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
