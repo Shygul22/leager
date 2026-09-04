@@ -12,7 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getBillTotal, getInvoiceTotal } from "@/lib/utils";
 
 export default function Dashboard() {
-  const { user, role } = useAuth();
+  const { user, role, account } = useAuth();
   const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
 
   const { data: profile } = useQuery({
@@ -44,13 +44,14 @@ export default function Dashboard() {
   };
 
   const { data: transactions = [] } = useQuery({
-    queryKey: ["transactions", user?.id, role],
+    queryKey: ["transactions", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("transactions").select("*");
       
-      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       
@@ -62,13 +63,14 @@ export default function Dashboard() {
   });
 
   const { data: bills = [] } = useQuery({
-    queryKey: ["bills", user?.id, role],
+    queryKey: ["bills", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("bills").select("*, bill_items(*)");
       
-      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       
@@ -80,14 +82,14 @@ export default function Dashboard() {
   });
 
   const { data: invoices = [] } = useQuery({
-    queryKey: ["invoices", user?.id, role],
+    queryKey: ["invoices", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("invoices").select("*, invoice_items(*)");
       
-      const isStaffOrAbove = !role || ["admin", "accounts_manager", "project_manager", "staff", "ticket_support"].includes(role);
-      
-      if (!isStaffOrAbove) {
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
         query = query.eq("user_id", user.id);
       }
       
@@ -99,10 +101,15 @@ export default function Dashboard() {
   });
 
   const { data: clients = [] } = useQuery({
-    queryKey: ["clients", user?.id, role],
+    queryKey: ["clients", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("clients").select("*");
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
       const { data, error } = await query;
       if (error) throw error;
       return data || [];
@@ -111,10 +118,15 @@ export default function Dashboard() {
   });
 
   const { data: quotations = [] } = useQuery({
-    queryKey: ["quotations", user?.id, role],
+    queryKey: ["quotations", user?.id, role, account?.id],
     queryFn: async () => {
       if (!user) return [];
       let query = supabase.from("quotations").select("*, quotation_items(*)");
+      if (account?.id) {
+        query = query.or(`account_id.eq.${account.id},user_id.eq.${user.id}`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
       const { data, error } = await query;
       if (error) throw error;
       return data || [];
@@ -394,12 +406,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {profile?.company_name && (
+      {(account?.company_name || profile?.company_name) && (
         <Card className="bg-primary/5 border-primary/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <Wallet className="h-5 w-5 text-primary" />
-              {profile.company_name}
+              {account?.company_name || profile?.company_name}
             </CardTitle>
           </CardHeader>
           <CardContent className="grid md:grid-cols-3 gap-6 py-4">
