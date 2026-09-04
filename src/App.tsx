@@ -31,6 +31,7 @@ import Documents from "./pages/Documents";
 import AccessDirectory from "./pages/AccessDirectory";
 import LeadTracking from "./pages/LeadTracking";
 import LicenseManagement from "./pages/LicenseManagement";
+import { LicenseLockScreen } from "@/components/LicenseLockScreen";
 
 import NotFound from "./pages/NotFound";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
@@ -72,22 +73,7 @@ const ProtectedRoute = ({ children, allowedRoles, minLevel }: { children: React.
   if (role !== 'super_admin' && (licenseStatus !== 'active' || accountStatus !== 'active')) {
     return (
       <AppLayout>
-        <div className="flex flex-col items-center justify-center min-h-[65vh] text-center p-6">
-          <div className="w-20 h-20 bg-amber-500/10 dark:bg-amber-500/20 rounded-full flex items-center justify-center mb-6">
-            <ShieldAlert className="h-10 w-10 text-amber-600 dark:text-amber-400" />
-          </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">Portal Access Gated</h1>
-          <p className="text-muted-foreground max-w-md mx-auto mb-6">
-            {licenseStatus === 'pending'
-              ? "Your account license key is currently pending activation by the Super Admin."
-              : licenseStatus === 'expired'
-              ? "Your account license has expired. Please contact support or your Super Admin to renew your subscription."
-              : "Your company account or license status is suspended."}
-          </p>
-          <div className="flex gap-4">
-            <Button variant="outline" onClick={() => supabase.auth.signOut()} size="lg" className="rounded-full px-8">Sign Out</Button>
-          </div>
-        </div>
+        <LicenseLockScreen />
       </AppLayout>
     );
   }
