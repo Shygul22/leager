@@ -100,6 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setImpersonatedAccount(parsed);
                     setAccountStatus("active");
                     setLicenseStatus("active");
+                    setProfile({
+                        ...userProfile,
+                        account_id: parsed.id,
+                        company_name: parsed.company_name
+                    });
                     return;
                 }
 
@@ -219,6 +224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profile) {
             setProfile({
                 ...profile,
+                account_id: acc.id,
                 company_name: acc.company_name
             });
         }
