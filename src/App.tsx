@@ -29,7 +29,6 @@ import BugTracker from "./pages/BugTracker";
 import Quotations from "./pages/Quotations";
 import Documents from "./pages/Documents";
 import AccessDirectory from "./pages/AccessDirectory";
-import ClientTracking from "./pages/ClientTracking";
 import LeadTracking from "./pages/LeadTracking";
 
 import NotFound from "./pages/NotFound";
@@ -132,7 +131,6 @@ const App = () => (
             <Route path="/portal" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
             <Route path="/portal/:clientNumber" element={<ClientPortalRoute><ClientPortal /></ClientPortalRoute>} />
             <Route path="/clients" element={<ProtectedRoute allowedRoles={['admin', 'project_manager']}><Clients /></ProtectedRoute>} />
-            <Route path="/client-tracking" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'project_manager', 'staff']}><ClientTracking /></ProtectedRoute>} />
             <Route path="/lead-tracking" element={<ProtectedRoute allowedRoles={['admin', 'accounts_manager', 'project_manager', 'staff']}><LeadTracking /></ProtectedRoute>} />
             <Route path="/products" element={<ProtectedRoute allowedRoles={['admin', 'staff']}><Products /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin']}><Suppliers /></ProtectedRoute>} />

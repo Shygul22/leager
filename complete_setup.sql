@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS public.invoice_items (
     quantity NUMERIC(10, 2) DEFAULT 1 NOT NULL,
     rate NUMERIC(15, 2) DEFAULT 0 NOT NULL,
     mrp NUMERIC(15, 2) DEFAULT 0,
+    discount NUMERIC(15, 2) DEFAULT 0,
     discount_percent NUMERIC(5, 2) DEFAULT 0,
     gst NUMERIC(5, 2) DEFAULT 18 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -199,6 +200,7 @@ CREATE TABLE IF NOT EXISTS public.bill_items (
     quantity NUMERIC(10, 2) DEFAULT 1 NOT NULL,
     rate NUMERIC(15, 2) DEFAULT 0 NOT NULL,
     mrp NUMERIC(15, 2) DEFAULT 0,
+    discount NUMERIC(15, 2) DEFAULT 0,
     discount_percent NUMERIC(5, 2) DEFAULT 0,
     gst NUMERIC(5, 2) DEFAULT 18 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -269,6 +271,7 @@ CREATE TABLE IF NOT EXISTS public.quotation_items (
     quantity NUMERIC(10, 2) DEFAULT 1 NOT NULL,
     rate NUMERIC(15, 2) DEFAULT 0 NOT NULL,
     mrp NUMERIC(15, 2) DEFAULT 0,
+    discount NUMERIC(15, 2) DEFAULT 0,
     discount_percent NUMERIC(5, 2) DEFAULT 0,
     gst NUMERIC(5, 2) DEFAULT 18 NOT NULL
 );
