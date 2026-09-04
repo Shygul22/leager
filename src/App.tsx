@@ -40,6 +40,8 @@ import { Loader2, Lock, ShieldAlert } from "lucide-react";
 const ROLE_LEVELS: Record<string, number> = {
   super_admin: 110,
   admin: 100,
+  sub_admin: 90,
+  "sub-admin": 90,
   accounts_manager: 80,
   project_manager: 60,
   staff: 40,
@@ -50,6 +52,8 @@ const ROLE_LEVELS: Record<string, number> = {
 const ROLE_LANDING_PAGES: Record<string, string> = {
   super_admin: "/licenses",
   admin: "/dashboard",
+  sub_admin: "/dashboard",
+  "sub-admin": "/dashboard",
   accounts_manager: "/dashboard",
   project_manager: "/projects",
   staff: "/invoices",
@@ -70,8 +74,10 @@ const ProtectedRoute = ({ children, allowedRoles, minLevel }: { children: React.
   
   if (!user) return <Navigate to="/auth" />;
 
+  const normRole = role ? role.toLowerCase() : "";
+
   // License Access Rule Enforcement: Admin Portal Access = Account Active + License Active + User Active
-  if (role !== 'super_admin' && (licenseStatus !== 'active' || accountStatus !== 'active')) {
+  if (normRole !== 'super_admin' && (licenseStatus !== 'active' || accountStatus !== 'active')) {
     return (
       <AppLayout>
         <LicenseLockScreen />
@@ -79,10 +85,23 @@ const ProtectedRoute = ({ children, allowedRoles, minLevel }: { children: React.
     );
   }
 
-  const userLevel = role ? ROLE_LEVELS[role] || 0 : 0;
-  const isAllowed = 
-    (allowedRoles && role && allowedRoles.includes(role)) || 
-    (minLevel !== undefined && userLevel >= minLevel);
+  const userLevel = role ? ROLE_LEVELS[normRole] || ROLE_LEVELS[role] || (normRole !== "client" ? 50 : 10) : 0;
+  
+  let isAllowed = false;
+
+  if (normRole === "super_admin") {
+    isAllowed = true;
+  } else if (allowedRoles && allowedRoles.length === 1 && allowedRoles[0] === "super_admin") {
+    // Strictly super_admin only route (e.g. /licenses)
+    isAllowed = normRole === "super_admin";
+  } else if (allowedRoles && (allowedRoles.includes(normRole) || (role && allowedRoles.includes(role)))) {
+    isAllowed = true;
+  } else if (minLevel !== undefined && userLevel >= minLevel) {
+    isAllowed = true;
+  } else if (normRole !== "client" && (!allowedRoles || !allowedRoles.includes("super_admin") || allowedRoles.length > 1)) {
+    // Custom non-client internal roles (e.g. Sub-Admin, Finance Manager) have access to internal app modules
+    isAllowed = true;
+  }
 
   if (!isAllowed) {
     return (
@@ -111,7 +130,8 @@ const AuthRedirect = () => {
   const { role } = useAuth();
   if (!role) return <Navigate to="/auth" replace />;
   
-  const landingPage = ROLE_LANDING_PAGES[role] || "/auth";
+  const normRole = role.toLowerCase();
+  const landingPage = ROLE_LANDING_PAGES[normRole] || ROLE_LANDING_PAGES[role] || (normRole === "client" ? "/portal" : "/dashboard");
   return <Navigate to={landingPage} replace />;
 };
 

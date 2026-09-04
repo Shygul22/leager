@@ -49,7 +49,27 @@ export function AppSidebar() {
   
   const filterItems = (items: any[]) => {
     if (!role) return [];
-    return items.filter(item => item.roles.includes(role));
+    const normRole = role.toLowerCase();
+    
+    // Super Admin sees all menu items
+    if (normRole === "super_admin") return items;
+    
+    // Company Admin sees all company menu items (excluding Super Admin Portal /licenses)
+    if (normRole === "admin") return items.filter(i => i.url !== "/licenses");
+
+    const isCustomOrStaffRole = !["super_admin", "admin", "client"].includes(normRole);
+
+    return items.filter(item => {
+      // 1. Direct role match
+      if (item.roles.includes(normRole) || item.roles.includes(role)) return true;
+
+      // 2. Custom Roles (e.g. Sub-Admin, Finance Manager) see all internal management & operational items (except /licenses)
+      if (isCustomOrStaffRole && item.url !== "/licenses") {
+        return true;
+      }
+
+      return false;
+    });
   };
 
   const filteredAdmin = filterItems(adminItems);
