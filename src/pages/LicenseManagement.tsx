@@ -52,10 +52,19 @@ export default function LicenseManagement() {
 
     const [form, setForm] = useState({
         company_name: "",
-        admin_email: "",
+        account_code: "",
+        company_email: "",
+        phone: "",
+        address: "",
+        country: "United States",
+        tax_id: "",
         plan: "Professional",
+        billing_cycle: "Annual",
         user_limit: 5,
         duration_months: 12,
+        admin_name: "",
+        admin_email: "",
+        admin_phone: ""
     });
 
     // Fetch all accounts and associated license details
@@ -520,37 +529,73 @@ export default function LicenseManagement() {
 
             {/* Generate Account Modal */}
             <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <Key className="h-5 w-5 text-purple-600" />
-                            Generate Account & License Key
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <Building2 className="h-5 w-5 text-purple-600" />
+                            + Generate Enterprise Account & License Key
                         </DialogTitle>
                         <DialogDescription>
-                            Create a tenant company account and generate a unique `LIC-XXXX-XXXX-XXXX` license key.
+                            Provision a new multi-tenant company account, assign subscription plan, and generate a unique `LIC-XXXX-XXXX-XXXX` license key.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4 py-2">
-                        <div>
-                            <Label>Company / Account Name *</Label>
-                            <Input
-                                placeholder="e.g. ZenJourney Pvt Ltd"
-                                value={form.company_name}
-                                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-                            />
-                        </div>
-                        <div>
-                            <Label>Admin Email Address *</Label>
-                            <Input
-                                type="email"
-                                placeholder="e.g. admin@company.com"
-                                value={form.admin_email}
-                                onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
-                            />
+                    <div className="space-y-4 py-2 text-xs">
+                        <div className="font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider text-[11px] border-b pb-1">1. Company & Account Details</div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label>Company / Account Name *</Label>
+                                <Input
+                                    placeholder="e.g. Acme Corp"
+                                    value={form.company_name}
+                                    onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Account ID Code (Optional)</Label>
+                                <Input
+                                    placeholder="e.g. ACC-ACME-001"
+                                    value={form.account_code}
+                                    onChange={(e) => setForm({ ...form, account_code: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Company Email</Label>
+                                <Input
+                                    type="email"
+                                    placeholder="contact@acme.com"
+                                    value={form.company_email}
+                                    onChange={(e) => setForm({ ...form, company_email: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Phone</Label>
+                                <Input
+                                    placeholder="+1 (555) 000-0000"
+                                    value={form.phone}
+                                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Tax / VAT / GST ID</Label>
+                                <Input
+                                    placeholder="e.g. GSTIN27AAAAA0000A1Z5"
+                                    value={form.tax_id}
+                                    onChange={(e) => setForm({ ...form, tax_id: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Country</Label>
+                                <Input
+                                    placeholder="United States / India"
+                                    value={form.country}
+                                    onChange={(e) => setForm({ ...form, country: e.target.value })}
+                                />
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider text-[11px] border-b pb-1 mt-4">2. Subscription & License Configuration</div>
+                        <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <Label>Subscription Plan</Label>
                                 <Select value={form.plan} onValueChange={(val) => setForm({ ...form, plan: val })}>
@@ -558,9 +603,21 @@ export default function LicenseManagement() {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Starter">Starter Plan</SelectItem>
-                                        <SelectItem value="Professional">Professional</SelectItem>
-                                        <SelectItem value="Enterprise">Enterprise</SelectItem>
+                                        <SelectItem value="Starter">Starter ($49/mo)</SelectItem>
+                                        <SelectItem value="Professional">Professional ($149/mo)</SelectItem>
+                                        <SelectItem value="Enterprise">Enterprise ($499/mo)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div>
+                                <Label>Billing Cycle</Label>
+                                <Select value={form.billing_cycle} onValueChange={(val) => setForm({ ...form, billing_cycle: val })}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Monthly">Monthly</SelectItem>
+                                        <SelectItem value="Annual">Annual (20% Discount)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -591,9 +648,30 @@ export default function LicenseManagement() {
                                 onChange={(e) => setForm({ ...form, user_limit: Number(e.target.value) || 5 })}
                             />
                         </div>
+
+                        <div className="font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider text-[11px] border-b pb-1 mt-4">3. Primary Account Administrator</div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label>Primary Admin Name</Label>
+                                <Input
+                                    placeholder="John Doe"
+                                    value={form.admin_name}
+                                    onChange={(e) => setForm({ ...form, admin_name: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <Label>Primary Admin Email *</Label>
+                                <Input
+                                    type="email"
+                                    placeholder="admin@company.com"
+                                    value={form.admin_email}
+                                    onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
+                                />
+                            </div>
+                        </div>
                     </div>
 
-                    <DialogFooter>
+                    <DialogFooter className="mt-4">
                         <Button variant="outline" onClick={() => setCreateModalOpen(false)}>Cancel</Button>
                         <Button
                             onClick={() => createAccountMutation.mutate()}
@@ -601,7 +679,7 @@ export default function LicenseManagement() {
                             className="bg-purple-600 hover:bg-purple-700 text-white gap-2"
                         >
                             {createAccountMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
-                            Generate License Key
+                            Generate Account & License Key
                         </Button>
                     </DialogFooter>
                 </DialogContent>
