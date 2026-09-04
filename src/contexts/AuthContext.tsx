@@ -103,12 +103,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     return;
                 }
 
-                // Fetch Account & License details if account_id is present
-                if (userProfile.account_id) {
+                let targetAccountId = userProfile.account_id;
+
+                if (!targetAccountId) {
+                    // Try 1: Check user_account_memberships table
+                    const { data: memData } = await supabase
+                        .from("user_account_memberships")
+                        .select("account_id")
+                        .eq("user_id", userId)
+                        .limit(1)
+                        .maybeSingle();
+
+                    if (memData?.account_id) {
+                        targetAccountId = memData.account_id;
+                    } else if (userProfile.company_name) {
+                        // Try 2: Check matching accounts by company_name
+                        const cleanCompany = userProfile.company_name.trim();
+                        const { data: matchedAcc } = await supabase
+                            .from("accounts")
+                            .select("id")
+                            .ilike("company_name", `%${cleanCompany}%`)
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (matchedAcc?.id) {
+                            targetAccountId = matchedAcc.id;
+                        } else {
+                            // Try 3: Default to first active account in system
+                            const { data: firstAcc } = await supabase
+                                .from("accounts")
+                                .select("id")
+                                .eq("status", "active")
+                                .limit(1)
+                                .maybeSingle();
+
+                            if (firstAcc?.id) {
+                                targetAccountId = firstAcc.id;
+                            }
+                        }
+                    } else {
+                        // Try 4: Default to first active account in system
+                        const { data: firstAcc } = await supabase
+                            .from("accounts")
+                            .select("id")
+                            .eq("status", "active")
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (firstAcc?.id) {
+                            targetAccountId = firstAcc.id;
+                        }
+                    }
+
+                    if (targetAccountId) {
+                        // Update profiles table so account_id is stored
+                        await supabase.from("profiles").update({ account_id: targetAccountId }).eq("id", userId);
+                        userProfile.account_id = targetAccountId;
+                        setProfile({ ...userProfile, account_id: targetAccountId });
+                    }
+                }
+
+                // Fetch Account & License details if targetAccountId is present
+                if (targetAccountId) {
                     const { data: accData } = await supabase
                         .from("accounts")
                         .select("*")
-                        .eq("id", userProfile.account_id)
+                        .eq("id", targetAccountId)
                         .maybeSingle();
 
                     if (accData) {
@@ -125,10 +185,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                         if (licData) {
                             setLicense(licData as LicenseDetails);
-                            setLicenseStatus(licData.status || "pending");
+                            setLicenseStatus(licData.status || "active");
                         } else {
                             setLicense(null);
-                            setLicenseStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
+                            setLicenseStatus("active");
                         }
                     } else {
                         setAccount(null);

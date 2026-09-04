@@ -326,11 +326,13 @@ export default function Roles() {
             const matchesAccount = Boolean(myAccountId && profileAccountId && profileAccountId === myAccountId);
             const matchesCompany = Boolean(myCompany && profileCompany && (profileCompany.includes(myCompany) || myCompany.includes(profileCompany)));
 
-            // If profile has an account_id, require account match. Otherwise, require company match or show for admin
-            if (myAccountId && profileAccountId) {
-                if (!matchesAccount) return false;
-            } else if (myCompany && profileCompany) {
-                if (!matchesCompany) return false;
+            // If account_id exists on profile and differs from Admin's account -> hide
+            if (myAccountId && profileAccountId && !matchesAccount) {
+                return false;
+            }
+            // If company_name exists and differs from Admin's company -> hide
+            if (myCompany && profileCompany && !matchesCompany && profileAccountId !== myAccountId) {
+                return false;
             }
         }
 
