@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Key, Building2, ShieldCheck, Check, Copy, RefreshCw, Loader2, Search, Trash2, Calendar, Lock, AlertCircle, Ban } from "lucide-react";
+import { Plus, Key, Building2, ShieldCheck, Check, Copy, RefreshCw, Loader2, Search, Trash2, Calendar, Lock, AlertCircle, Ban, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { format, addMonths } from "date-fns";
 
