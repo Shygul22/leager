@@ -151,7 +151,7 @@ const App = () => (
                 <AuthRedirect />
               </ProtectedRoute>
             } />
-            <Route path="/licenses" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><LicenseManagement /></ProtectedRoute>} />
+            <Route path="/licenses" element={<ProtectedRoute allowedRoles={['super_admin']}><LicenseManagement /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'staff', 'project_manager']}><Dashboard /></ProtectedRoute>} />
             <Route path="/transactions" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Transactions /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']}><Invoices /></ProtectedRoute>} />

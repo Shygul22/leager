@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const adminItems = [
-  { title: "License Keys & Accounts", url: "/licenses", icon: Key, roles: ["super_admin", "admin"] },
+  { title: "Super Admin Portal", url: "/licenses", icon: Key, roles: ["super_admin"] },
   { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
@@ -28,17 +28,17 @@ const adminItems = [
 ];
 
 const operationalItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["admin", "accounts_manager", "staff", "project_manager"] },
-  { title: "Clients", url: "/clients", icon: Users, roles: ["admin", "project_manager"] },
-  { title: "Lead Tracking", url: "/lead-tracking", icon: UserPlus, roles: ["admin", "accounts_manager", "project_manager", "staff"] },
-  { title: "Service Catalog", url: "/products", icon: Package, roles: ["admin", "staff"] },
-  { title: "Quotations", url: "/quotations", icon: FileText, roles: ["admin", "project_manager", "staff"] },
-  { title: "Invoices", url: "/invoices", icon: FileText, roles: ["admin", "staff"] },
-  { title: "Projects", url: "/projects", icon: Briefcase, roles: ["admin", "project_manager"] },
-  { title: "Documents Library", url: "/documents", icon: FolderOpen, roles: ["admin", "accounts_manager", "project_manager", "staff"] },
-  { title: "Support Tickets", url: "/tickets", icon: MessageSquare, roles: ["admin", "ticket_support"] },
-  { title: "Bug Tracker", url: "/bug-tracker", icon: Bug, roles: ["admin", "project_manager", "ticket_support"] },
-  { title: "Client Portal", url: "/portal", icon: Globe, roles: ["admin"] },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
+  { title: "Clients", url: "/clients", icon: Users, roles: ["super_admin", "admin", "project_manager"] },
+  { title: "Lead Tracking", url: "/lead-tracking", icon: UserPlus, roles: ["super_admin", "admin", "accounts_manager", "project_manager", "staff"] },
+  { title: "Service Catalog", url: "/products", icon: Package, roles: ["super_admin", "admin", "staff"] },
+  { title: "Quotations", url: "/quotations", icon: FileText, roles: ["super_admin", "admin", "project_manager", "staff"] },
+  { title: "Invoices", url: "/invoices", icon: FileText, roles: ["super_admin", "admin", "staff"] },
+  { title: "Projects", url: "/projects", icon: Briefcase, roles: ["super_admin", "admin", "project_manager"] },
+  { title: "Documents Library", url: "/documents", icon: FolderOpen, roles: ["super_admin", "admin", "accounts_manager", "project_manager", "staff"] },
+  { title: "Support Tickets", url: "/tickets", icon: MessageSquare, roles: ["super_admin", "admin", "ticket_support"] },
+  { title: "Bug Tracker", url: "/bug-tracker", icon: Bug, roles: ["super_admin", "admin", "project_manager", "ticket_support"] },
+  { title: "Client Portal", url: "/portal", icon: Globe, roles: ["super_admin", "admin"] },
 ];
 
 export function AppSidebar() {
