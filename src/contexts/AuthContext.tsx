@@ -38,6 +38,9 @@ type AuthContextType = {
     license: LicenseDetails | null;
     accountStatus: string;
     licenseStatus: string;
+    impersonatedAccount: AccountDetails | null;
+    impersonateAccount: (acc: AccountDetails) => void;
+    exitImpersonation: () => void;
     loading: boolean;
     signOut: () => Promise<void>;
 };
@@ -53,7 +56,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [license, setLicense] = useState<LicenseDetails | null>(null);
     const [accountStatus, setAccountStatus] = useState<string>("active");
     const [licenseStatus, setLicenseStatus] = useState<string>("active");
+    const [impersonatedAccount, setImpersonatedAccount] = useState<AccountDetails | null>(null);
     const [loading, setLoading] = useState(true);
+
+    // Load active impersonation on mount if stored in sessionStorage
+    useEffect(() => {
+        const storedImpersonation = sessionStorage.getItem("super_admin_impersonated_account");
+        if (storedImpersonation) {
+            try {
+                const parsed = JSON.parse(storedImpersonation);
+                setImpersonatedAccount(parsed);
+                setAccount(parsed);
+            } catch (e) {
+                sessionStorage.removeItem("super_admin_impersonated_account");
+            }
+        }
+    }, []);
 
     const fetchProfileAndLicense = async (userId: string) => {
         try {
@@ -70,6 +88,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const isSuperAdminEmail = userProfile.email?.toLowerCase() === "shyguldigital@gmail.com";
                 const userRole = isSuperAdminEmail ? "super_admin" : (userProfile.role || "staff");
                 setRole(userRole);
+
+                // If Super Admin is currently impersonating an account, prioritize impersonated account details
+                const storedImpersonation = sessionStorage.getItem("super_admin_impersonated_account");
+                if (storedImpersonation && (isSuperAdminEmail || userRole === "super_admin")) {
+                    const parsed = JSON.parse(storedImpersonation);
+                    setAccount(parsed);
+                    setImpersonatedAccount(parsed);
+                    setAccountStatus("active");
+                    setLicenseStatus("active");
+                    return;
+                }
 
                 // Fetch Account & License details if account_id is present
                 if (userProfile.account_id) {
@@ -120,6 +149,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const impersonateAccount = (acc: AccountDetails) => {
+        sessionStorage.setItem("super_admin_impersonated_account", JSON.stringify(acc));
+        setImpersonatedAccount(acc);
+        setAccount(acc);
+        if (profile) {
+            setProfile({
+                ...profile,
+                company_name: acc.company_name
+            });
+        }
+    };
+
+    const exitImpersonation = () => {
+        sessionStorage.removeItem("super_admin_impersonated_account");
+        setImpersonatedAccount(null);
+        if (user) {
+            fetchProfileAndLicense(user.id);
+        }
+    };
+
     // Stamp last_login in profiles whenever a user signs in
     const stampLastLogin = async (userId: string) => {
         try {
@@ -163,6 +212,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setRole(null);
                 setAccount(null);
                 setLicense(null);
+                setImpersonatedAccount(null);
+                sessionStorage.removeItem("super_admin_impersonated_account");
             }
         });
 
@@ -170,15 +221,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const signOut = async () => {
+        sessionStorage.removeItem("super_admin_impersonated_account");
         await supabase.auth.signOut();
         setProfile(null);
         setRole(null);
         setAccount(null);
         setLicense(null);
+        setImpersonatedAccount(null);
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, profile, role, account, license, accountStatus, licenseStatus, loading, signOut }}>
+        <AuthContext.Provider value={{ session, user, profile, role, account, license, accountStatus, licenseStatus, impersonatedAccount, impersonateAccount, exitImpersonation, loading, signOut }}>
             {children}
         </AuthContext.Provider>
     );

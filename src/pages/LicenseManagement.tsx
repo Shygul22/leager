@@ -411,6 +411,21 @@ export default function LicenseManagement() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex items-center justify-end gap-1">
+                                                        {acc && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => {
+                                                                    impersonateAccount(acc);
+                                                                    toast.success(`Direct View active for ${acc.company_name}`);
+                                                                    window.location.href = "/dashboard";
+                                                                }}
+                                                                className="h-7 text-xs bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 gap-1 hover:bg-purple-100 font-medium"
+                                                                title="Super Admin Direct View without Password"
+                                                            >
+                                                                <Eye className="h-3 w-3" /> Direct View
+                                                            </Button>
+                                                        )}
                                                         {lic.status === "pending" && (
                                                             <Button
                                                                 size="sm"
