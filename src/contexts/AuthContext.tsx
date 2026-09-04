@@ -93,19 +93,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                         if (licData) {
                             setLicense(licData as LicenseDetails);
-                            setLicenseStatus(licData.status || "active");
+                            setLicenseStatus(licData.status || "pending");
+                        } else {
+                            setLicense(null);
+                            setLicenseStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
                         }
+                    } else {
+                        setAccount(null);
+                        setAccountStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
+                        setLicenseStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
                     }
                 } else {
                     setAccount(null);
                     setLicense(null);
-                    setAccountStatus("active");
-                    setLicenseStatus("active");
+                    setAccountStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
+                    setLicenseStatus(isSuperAdminEmail || userRole === "super_admin" ? "active" : "pending");
                 }
             } else {
                 setRole("staff");
-                setAccountStatus("active");
-                setLicenseStatus("active");
+                setAccountStatus("pending");
+                setLicenseStatus("pending");
             }
         } catch (err) {
             console.error("Error fetching profile and license:", err);
