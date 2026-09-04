@@ -417,15 +417,15 @@ export default function Dashboard() {
           <CardContent className="grid md:grid-cols-3 gap-6 py-4">
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Business Address</p>
-              <p className="text-xs font-medium line-clamp-2">{profile.address || "No address set"}</p>
+              <p className="text-xs font-medium line-clamp-2">{profile?.address || "No address set"}</p>
             </div>
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Authorized Person</p>
-              <p className="text-xs font-medium">{profile.auth_person_name || "Not set"} ({profile.auth_designation || "No title"})</p>
+              <p className="text-xs font-medium">{profile?.auth_person_name || "Not set"} ({profile?.auth_designation || "No title"})</p>
             </div>
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Tax Details</p>
-              <p className="text-xs font-medium">GSTIN: {profile.gstin || "Not provided"}</p>
+              <p className="text-xs font-medium">GSTIN: {profile?.gstin || "Not provided"}</p>
             </div>
           </CardContent>
         </Card>
