@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Plus, X, Receipt, Trash2, Zap, ArrowLeftRight, CreditCard } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 
 export default function Settings() {
     const { user, role, account, license, signOut } = useAuth();
