@@ -24,7 +24,7 @@ const adminItems = [
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
   { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
-  { title: "Audit Trail", url: "/audit-logs", icon: History, roles: ["super_admin", "admin"] },
+  { title: "Audit Trail", url: "/audit-logs", icon: History, roles: ["super_admin"] },
   { title: "Settings", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
