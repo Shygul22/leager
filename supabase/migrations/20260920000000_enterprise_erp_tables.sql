@@ -172,9 +172,6 @@ CREATE TABLE IF NOT EXISTS public.employee_leaves (
   updated_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Compatibility view for leave_requests
-CREATE OR REPLACE VIEW public.leave_requests AS SELECT * FROM public.employee_leaves;
-
 -- 11. Workflows & Automation
 CREATE TABLE IF NOT EXISTS public.workflows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

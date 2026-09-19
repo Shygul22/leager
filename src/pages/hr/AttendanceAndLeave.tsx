@@ -60,8 +60,13 @@ export default function AttendanceAndLeave() {
       let query = supabase.from("employee_leaves").select("*, employees(name, designation)").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data) return [];
-      return data;
+      if (error || !data || data.length === 0) {
+        let altQuery = supabase.from("leave_requests").select("*, employees(name, designation)").order("created_at", { ascending: false });
+        if (activeAccountId) altQuery = altQuery.eq("account_id", activeAccountId);
+        const { data: altData, error: altErr } = await altQuery;
+        if (!altErr && altData && altData.length > 0) return altData;
+      }
+      return data || [];
     }
   });
 
@@ -78,7 +83,10 @@ export default function AttendanceAndLeave() {
         account_id: activeAccountId || null
       };
       const { error } = await supabase.from("employee_leaves").insert(payload);
-      if (error) throw error;
+      if (error) {
+        const alt = await supabase.from("leave_requests").insert(payload);
+        if (alt.error) throw alt.error;
+      }
     },
     onSuccess: () => {
       toast.success("Leave application submitted");
@@ -94,7 +102,10 @@ export default function AttendanceAndLeave() {
   const updateLeaveStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const { error } = await supabase.from("employee_leaves").update({ status }).eq("id", id);
-      if (error) throw error;
+      if (error) {
+        const alt = await supabase.from("leave_requests").update({ status }).eq("id", id);
+        if (alt.error) throw alt.error;
+      }
     },
     onSuccess: () => {
       toast.success("Leave request status updated");

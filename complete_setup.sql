@@ -1021,9 +1021,6 @@ CREATE TABLE IF NOT EXISTS public.employee_leaves (
   updated_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Backward-compatibility view for leave_requests
-CREATE OR REPLACE VIEW public.leave_requests AS SELECT * FROM public.employee_leaves;
-
 CREATE TABLE IF NOT EXISTS public.workflows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id uuid REFERENCES public.accounts(id) ON DELETE CASCADE,
