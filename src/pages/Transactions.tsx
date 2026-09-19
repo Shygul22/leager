@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, isToday, isThisWeek, parseISO } from "date-fns";
-import { Plus, Pencil, Trash2, Download, UserCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Download, Upload, UserCircle, Receipt } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -48,6 +48,7 @@ const getCurrencySymbol = (currency?: string | null) => {
 export default function Transactions() {
   const { user, role, account } = useAuth();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [selectedRange, setSelectedRange] = useState<string>("all");
@@ -55,7 +56,54 @@ export default function Transactions() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
 
+  const { data: profile } = useQuery({
+    queryKey: ["profile", user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
   const activeAccountId = account?.id || profile?.account_id;
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet);
+
+      if (!rows || rows.length === 0) {
+        toast.error("No valid transaction rows found in file");
+        return;
+      }
+
+      const formatted = rows.map((r: any) => ({
+        description: r.Description || r.description || "Imported Transaction",
+        amount: parseFloat(r.Amount || r.amount || 0) || 0,
+        type: (r.Type || r.type || "expense").toLowerCase(),
+        category: r.Category || r.category || "General",
+        date: r.Date || r.date || format(new Date(), "yyyy-MM-dd"),
+        user_id: user.id,
+        account_id: activeAccountId || null
+      }));
+
+      const { error } = await supabase.from("transactions").insert(formatted);
+      if (error) throw error;
+
+      toast.success(`Successfully imported ${formatted.length} transactions!`);
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err: any) {
+      console.error("Import error:", err);
+      toast.error(err.message || "Failed to import file");
+    }
+  };
 
   const { data: rawTransactions = [], isLoading, error: queryError, refetch: refetchTransactions } = useQuery({
     queryKey: ["transactions", user?.id, role, activeAccountId],
@@ -140,17 +188,6 @@ export default function Transactions() {
       } as Transaction;
     });
   }, [rawTransactions, employees, clients]);
-
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    queryFn: async () => {
-      if (!user) return null;
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user,
-  });
 
   const activeCategories = useMemo(() => {
     if (profile?.transaction_categories) {
@@ -400,6 +437,21 @@ export default function Transactions() {
               <Trash2 className="mr-2 h-4 w-4" /> Delete ({selectedTxs.length})
             </Button>
           )}
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".xlsx, .xls, .csv"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 sm:flex-none"
+            title="Import from Excel or CSV"
+          >
+            <Upload className="mr-2 h-4 w-4 text-primary" /> Import
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="flex-1 sm:flex-none"><Download className="mr-2 h-4 w-4" /> Export</Button>
@@ -413,10 +465,22 @@ export default function Transactions() {
         </div>
       </div>
 
-      <div className="flex gap-2">
-        {["all", "income", "expense"].map((t) => (
-          <Button key={t} variant={filterType === t ? "default" : "outline"} size="sm" onClick={() => setFilterType(t)} className="capitalize">
-            {t}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: "All Transactions", value: "all" },
+          { label: "Income / Receipts", value: "income" },
+          { label: "Expenses / Payments", value: "expense" },
+          { label: "Reimbursement Vouchers", value: "reimbursement" },
+          { label: "Purchase Vouchers", value: "purchase_voucher" },
+        ].map((t) => (
+          <Button
+            key={t.value}
+            variant={filterType === t.value ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterType(t.value)}
+            className="text-xs font-medium"
+          >
+            {t.label}
           </Button>
         ))}
       </div>
@@ -490,7 +554,34 @@ export default function Transactions() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant={t.type === "income" ? "default" : "destructive"}>{t.type}</Badge></TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        t.type === "income"
+                          ? "default"
+                          : t.type === "reimbursement"
+                          ? "secondary"
+                          : t.type === "purchase_voucher"
+                          ? "outline"
+                          : "destructive"
+                      }
+                      className={
+                        t.type === "reimbursement"
+                          ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 font-semibold text-[11px]"
+                          : t.type === "purchase_voucher"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300 font-semibold text-[11px]"
+                          : "text-[11px]"
+                      }
+                    >
+                      {t.type === "reimbursement"
+                        ? "Reimbursement Voucher"
+                        : t.type === "purchase_voucher"
+                        ? "Purchase Voucher"
+                        : t.type === "income"
+                        ? "Income / Receipt"
+                        : "Expense / Payment"}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-right font-medium">
                     {getCurrencySymbol(profile?.default_currency)}
                     {formatAmount(Number(t.amount))}
@@ -510,16 +601,18 @@ export default function Transactions() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Edit" : "Add"} Transaction</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? "Edit" : "Add"} Transaction / Voucher</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Description</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
             <div><Label>Amount</Label><Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
-            <div><Label>Type</Label>
+            <div><Label>Type / Voucher Classification</Label>
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="income">Income</SelectItem>
-                  <SelectItem value="expense">Expense</SelectItem>
+                  <SelectItem value="income">Income / Receipt</SelectItem>
+                  <SelectItem value="expense">Expense / Payment Voucher</SelectItem>
+                  <SelectItem value="reimbursement">Reimbursement Voucher</SelectItem>
+                  <SelectItem value="purchase_voucher">Purchase Voucher</SelectItem>
                 </SelectContent>
               </Select>
             </div>

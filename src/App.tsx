@@ -33,6 +33,25 @@ import LeadTracking from "./pages/LeadTracking";
 import LicenseManagement from "./pages/LicenseManagement";
 import AuditLogs from "./pages/AuditLogs";
 import Analysis from "./pages/Analysis";
+import ExecutiveDashboard from "./pages/ExecutiveDashboard";
+import FinancialStatements from "./pages/accounting/FinancialStatements";
+import AgingReports from "./pages/accounting/AgingReports";
+import ChartOfAccounts from "./pages/accounting/ChartOfAccounts";
+import GeneralLedger from "./pages/accounting/GeneralLedger";
+import JournalEntries from "./pages/accounting/JournalEntries";
+import ProjectProfitability from "./pages/projects/ProjectProfitability";
+import Timesheets from "./pages/projects/Timesheets";
+import SalesOrders from "./pages/sales/SalesOrders";
+import CreditNotes from "./pages/sales/CreditNotes";
+import PurchaseOrders from "./pages/purchase/PurchaseOrders";
+import PurchaseRequests from "./pages/purchase/PurchaseRequests";
+import GoodsReceived from "./pages/purchase/GoodsReceived";
+import AttendanceAndLeave from "./pages/hr/AttendanceAndLeave";
+import Payroll from "./pages/hr/Payroll";
+import AssetsAndInventory from "./pages/assets/AssetsAndInventory";
+import ServiceContracts from "./pages/contracts/ServiceContracts";
+import WorkflowAutomation from "./pages/WorkflowAutomation";
+import KnowledgeBase from "./pages/support/KnowledgeBase";
 import { LicenseLockScreen } from "@/components/LicenseLockScreen";
 
 import NotFound from "./pages/NotFound";
@@ -173,6 +192,25 @@ const App = () => (
             <Route path="/bills" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
             <Route path="/tax-reports" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><TaxReports /></ProtectedRoute>} />
             <Route path="/analysis" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Analysis /></ProtectedRoute>} />
+            <Route path="/executive-dashboard" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager', 'staff', 'project_manager']}><ExecutiveDashboard /></ProtectedRoute>} />
+            <Route path="/financial-statements" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><FinancialStatements /></ProtectedRoute>} />
+            <Route path="/aging-reports" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><AgingReports /></ProtectedRoute>} />
+            <Route path="/chart-of-accounts" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><ChartOfAccounts /></ProtectedRoute>} />
+            <Route path="/general-ledger" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><GeneralLedger /></ProtectedRoute>} />
+            <Route path="/journal-entries" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><JournalEntries /></ProtectedRoute>} />
+            <Route path="/project-profitability" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'accounts_manager']}><ProjectProfitability /></ProtectedRoute>} />
+            <Route path="/timesheets" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'staff']}><Timesheets /></ProtectedRoute>} />
+            <Route path="/sales-orders" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager', 'staff']}><SalesOrders /></ProtectedRoute>} />
+            <Route path="/credit-notes" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><CreditNotes /></ProtectedRoute>} />
+            <Route path="/purchase-orders" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><PurchaseOrders /></ProtectedRoute>} />
+            <Route path="/purchase-requests" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff', 'project_manager']}><PurchaseRequests /></ProtectedRoute>} />
+            <Route path="/goods-received" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><GoodsReceived /></ProtectedRoute>} />
+            <Route path="/attendance-leave" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff']}><AttendanceAndLeave /></ProtectedRoute>} />
+            <Route path="/payroll" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Payroll /></ProtectedRoute>} />
+            <Route path="/assets-inventory" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><AssetsAndInventory /></ProtectedRoute>} />
+            <Route path="/service-contracts" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'project_manager']}><ServiceContracts /></ProtectedRoute>} />
+            <Route path="/workflows" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><WorkflowAutomation /></ProtectedRoute>} />
+            <Route path="/knowledge-base" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'staff', 'project_manager']}><KnowledgeBase /></ProtectedRoute>} />
             <Route path="/shareholders" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Shareholders /></ProtectedRoute>} />
             <Route path="/employees" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Employees /></ProtectedRoute>} />
             <Route path="/tickets" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'ticket_support']}><Tickets /></ProtectedRoute>} />

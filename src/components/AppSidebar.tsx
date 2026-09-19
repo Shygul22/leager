@@ -1,4 +1,38 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key, History, ArrowLeft } from "lucide-react";
+import {
+  LayoutDashboard,
+  ArrowLeftRight,
+  FileText,
+  Settings,
+  PieChart,
+  Users,
+  Package,
+  Truck,
+  CreditCard,
+  ShieldCheck,
+  UserCircle,
+  Globe,
+  MessageSquare,
+  ShieldAlert,
+  Bug,
+  Briefcase,
+  FolderOpen,
+  Map,
+  Award,
+  UserPlus,
+  Key,
+  History,
+  ArrowLeft,
+  TrendingUp,
+  Clock,
+  FileSpreadsheet,
+  ShoppingCart,
+  ShoppingBag,
+  Coins,
+  Handshake,
+  Layers,
+  BookOpen,
+  Receipt
+} from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -20,29 +54,40 @@ const superAdminItems = [
 ];
 
 const financeAndAccountingItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
-  { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
-  { title: "Financial Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Finance Dashboard", url: "/executive-dashboard", icon: TrendingUp, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
+  { title: "Transactions & Vouchers", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Financial Statements (P&L)", url: "/financial-statements", icon: FileSpreadsheet, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Aging (Receivables/Payables)", url: "/aging-reports", icon: Clock, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Financial Analysis", url: "/analysis", icon: PieChart, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Tax Reports & GST", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Bills & Expenses", url: "/bills", icon: CreditCard, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Purchase Orders", url: "/purchase-orders", icon: ShoppingCart, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Suppliers & Payouts", url: "/suppliers", icon: Truck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Payroll & Salary", url: "/payroll", icon: Coins, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
+  { title: "Employee Timesheets", url: "/timesheets", icon: Clock, roles: ["super_admin", "admin", "project_manager", "staff"] },
   { title: "User Roles & Permissions", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
   { title: "Configuration", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
 const operationalItems = [
-  { title: "Clients", url: "/clients", icon: Users, roles: ["super_admin", "admin", "project_manager"] },
+  { title: "Operations Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
+  { title: "Clients & CRM", url: "/clients", icon: Users, roles: ["super_admin", "admin", "project_manager"] },
   { title: "Lead Tracking", url: "/lead-tracking", icon: UserPlus, roles: ["super_admin", "admin", "accounts_manager", "project_manager", "staff"] },
   { title: "Service Catalog", url: "/products", icon: Package, roles: ["super_admin", "admin", "staff"] },
   { title: "Quotations", url: "/quotations", icon: FileText, roles: ["super_admin", "admin", "project_manager", "staff"] },
-  { title: "Invoices", url: "/invoices", icon: FileText, roles: ["super_admin", "admin", "staff"] },
+  { title: "Invoices", url: "/invoices", icon: Receipt, roles: ["super_admin", "admin", "staff"] },
+  { title: "Sales Orders", url: "/sales-orders", icon: ShoppingBag, roles: ["super_admin", "admin", "project_manager", "staff"] },
   { title: "Projects", url: "/projects", icon: Briefcase, roles: ["super_admin", "admin", "project_manager"] },
+  { title: "Project Profitability", url: "/project-profitability", icon: TrendingUp, roles: ["super_admin", "admin", "project_manager", "accounts_manager"] },
+  { title: "Service Contracts", url: "/service-contracts", icon: Handshake, roles: ["super_admin", "admin", "project_manager"] },
+  { title: "Assets & Inventory", url: "/assets-inventory", icon: Layers, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Documents Library", url: "/documents", icon: FolderOpen, roles: ["super_admin", "admin", "accounts_manager", "project_manager", "staff"] },
   { title: "Support Tickets", url: "/tickets", icon: MessageSquare, roles: ["super_admin", "admin", "ticket_support"] },
   { title: "Bug Tracker", url: "/bug-tracker", icon: Bug, roles: ["super_admin", "admin", "project_manager", "ticket_support"] },
+  { title: "Knowledge Base", url: "/knowledge-base", icon: BookOpen, roles: ["super_admin", "admin", "staff", "project_manager"] },
   { title: "Client Portal", url: "/portal", icon: Globe, roles: ["super_admin", "admin"] },
 ];
 

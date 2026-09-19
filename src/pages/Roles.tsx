@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShieldCheck, UserCog, Mail, Search, RefreshCcw, Plus, Trash2, Edit, Sliders, Check, Lock } from "lucide-react";
+import { ShieldCheck, UserCog, Mail, Search, RefreshCcw, Plus, Trash2, Edit, Sliders, Check, Lock, Building, MapPin, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
@@ -412,9 +412,11 @@ export default function Roles() {
             </div>
 
             <Tabs defaultValue="user-roles" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 max-w-md">
+                <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 max-w-2xl">
                     <TabsTrigger value="user-roles">User Account Roles</TabsTrigger>
-                    <TabsTrigger value="custom-roles">Custom Roles & Permission Matrix</TabsTrigger>
+                    <TabsTrigger value="custom-roles">Module & CRUD Matrix</TabsTrigger>
+                    <TabsTrigger value="field-permissions">Field-Level Controls</TabsTrigger>
+                    <TabsTrigger value="branch-permissions">Branch Permissions</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="user-roles" className="mt-4">
@@ -608,6 +610,143 @@ export default function Roles() {
                                     ))}
                                 </div>
                             )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="field-permissions" className="mt-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <EyeOff className="h-5 w-5 text-primary" /> Field-Level Security & Data Masking Controls
+                            </CardTitle>
+                            <CardDescription>
+                                Configure field-level visibility and privacy masking rules for sensitive operational and financial data.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="text-sm font-semibold">Bank Accounts & IFSC Codes</h4>
+                                            <p className="text-xs text-muted-foreground">Mask company bank account digits (e.g. ****327860) for non-finance staff.</p>
+                                        </div>
+                                        <Badge variant="default" className="bg-emerald-600">Masked for Staff</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-2 border-t text-xs text-muted-foreground">
+                                        <Check className="h-4 w-4 text-emerald-500" /> Only Super Admin & Accounts Manager can unmask
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="text-sm font-semibold">Employee Salaries & Compensation</h4>
+                                            <p className="text-xs text-muted-foreground">Strict confidentiality on employee monthly payouts and CTC records.</p>
+                                        </div>
+                                        <Badge variant="default" className="bg-red-600">Restricted</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-2 border-t text-xs text-muted-foreground">
+                                        <Lock className="h-4 w-4 text-red-500" /> Hidden from PM, Staff & Client Roles
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="text-sm font-semibold">Tax & Corporate Identifiers (PAN/GSTIN/CIN)</h4>
+                                            <p className="text-xs text-muted-foreground">Display PAN & GSTIN on formal invoices, but restrict in raw exports.</p>
+                                        </div>
+                                        <Badge variant="secondary">Protected</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-2 border-t text-xs text-muted-foreground">
+                                        <Check className="h-4 w-4 text-primary" /> Verified by MCA U62013TN2026PTC191867
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="text-sm font-semibold">Customer Direct Contact Numbers</h4>
+                                            <p className="text-xs text-muted-foreground">Mask customer personal mobile numbers in support tickets to prevent leaks.</p>
+                                        </div>
+                                        <Badge variant="outline" className="text-purple-600 border-purple-500">Tier-1 Privacy</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-2 border-t text-xs text-muted-foreground">
+                                        <Check className="h-4 w-4 text-emerald-500" /> CRM Role Masking Active
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="branch-permissions" className="mt-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Building className="h-5 w-5 text-primary" /> Branch & Department Access Management
+                            </CardTitle>
+                            <CardDescription>
+                                Assign users and staff members to dedicated organizational branches, or grant multi-branch access rights.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div className="p-3 border rounded-lg bg-blue-50/40 dark:bg-blue-950/20">
+                                    <div className="flex items-center gap-2 font-bold text-sm text-blue-900 dark:text-blue-300">
+                                        <MapPin className="h-4 w-4 text-blue-600" /> Ulundurpet HQ (Main)
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">Ulundurpet, Kallakurichi, TN</div>
+                                    <Badge variant="secondary" className="mt-2 text-[10px]">Head Office</Badge>
+                                </div>
+                                <div className="p-3 border rounded-lg bg-emerald-50/40 dark:bg-emerald-950/20">
+                                    <div className="flex items-center gap-2 font-bold text-sm text-emerald-900 dark:text-emerald-300">
+                                        <MapPin className="h-4 w-4 text-emerald-600" /> Chennai Branch
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">OMR IT Corridor, Chennai, TN</div>
+                                    <Badge variant="secondary" className="mt-2 text-[10px]">Corporate Regional</Badge>
+                                </div>
+                                <div className="p-3 border rounded-lg bg-purple-50/40 dark:bg-purple-950/20">
+                                    <div className="flex items-center gap-2 font-bold text-sm text-purple-900 dark:text-purple-300">
+                                        <MapPin className="h-4 w-4 text-purple-600" /> Bangalore Hub
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">Whitefield, Bengaluru, KA</div>
+                                    <Badge variant="secondary" className="mt-2 text-[10px]">Tech & R&D Hub</Badge>
+                                </div>
+                            </div>
+
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>User / Email</TableHead>
+                                        <TableHead>Primary Branch</TableHead>
+                                        <TableHead>Multi-Branch Scope</TableHead>
+                                        <TableHead className="text-right">Access Status</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredProfiles.slice(0, 5).map((p) => (
+                                        <TableRow key={p.id}>
+                                            <TableCell className="font-medium text-xs">
+                                                {p.email || p.full_name || p.id}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {p.role === "super_admin" || p.role === "admin" ? "All Branches (Global)" : "Ulundurpet HQ"}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant={p.role === "super_admin" ? "default" : "outline"} className="text-[10px]">
+                                                    {p.role === "super_admin" ? "Global Access" : "Single Branch"}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right text-xs font-semibold text-emerald-600">
+                                                Authorized
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
                         </CardContent>
                     </Card>
                 </TabsContent>
