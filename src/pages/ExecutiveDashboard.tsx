@@ -41,6 +41,8 @@ import {
 } from "@/lib/accountingEngine";
 import { getInvoiceTotal, getBillTotal } from "@/lib/utils";
 
+import { format } from "date-fns";
+
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4"];
 
 export default function ExecutiveDashboard() {
@@ -51,7 +53,9 @@ export default function ExecutiveDashboard() {
   const { data: invoices = [] } = useQuery({
     queryKey: ["exec-invoices", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("invoices").select("*, invoice_items(*)");
+      let query = supabase.from("invoices").select("*, invoice_items(*)");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -60,7 +64,9 @@ export default function ExecutiveDashboard() {
   const { data: bills = [] } = useQuery({
     queryKey: ["exec-bills", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("bills").select("*, bill_items(*)");
+      let query = supabase.from("bills").select("*, bill_items(*)");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -69,7 +75,9 @@ export default function ExecutiveDashboard() {
   const { data: transactions = [] } = useQuery({
     queryKey: ["exec-transactions", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("transactions").select("*");
+      let query = supabase.from("transactions").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -78,7 +86,9 @@ export default function ExecutiveDashboard() {
   const { data: projects = [] } = useQuery({
     queryKey: ["exec-projects", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projects").select("*");
+      let query = supabase.from("projects").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -87,7 +97,9 @@ export default function ExecutiveDashboard() {
   const { data: employees = [] } = useQuery({
     queryKey: ["exec-employees", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("employees").select("*");
+      let query = supabase.from("employees").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -96,7 +108,9 @@ export default function ExecutiveDashboard() {
   const { data: contracts = [] } = useQuery({
     queryKey: ["exec-contracts", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("service_contracts").select("*");
+      let query = supabase.from("service_contracts").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
       if (error) return [];
       return data || [];
     }
@@ -117,33 +131,58 @@ export default function ExecutiveDashboard() {
   const totalAR = arAging.reduce((s, b) => s + b.amount, 0);
   const totalAP = apAging.reduce((s, b) => s + b.amount, 0);
 
-  // Revenue by Service Category
+  // Dynamic Revenue by Service Category
   const serviceBreakdown = useMemo(() => {
     const map = new Map<string, number>();
     invoices.forEach((inv: any) => {
       (inv.invoice_items || []).forEach((item: any) => {
-        const cat = item.description?.split(" ")[0] || "Software Dev";
+        const cat = item.description?.trim().split(" ")[0] || "General Services";
         map.set(cat, (map.get(cat) || 0) + (Number(item.quantity || 1) * Number(item.rate || 0)));
       });
     });
-    if (map.size === 0) {
-      return [
-        { name: "Software Development", value: 45000 },
-        { name: "Cloud Architecture", value: 25000 },
-        { name: "AMC & SLAs", value: 18000 },
-        { name: "Mobile Engineering", value: 12000 }
-      ];
-    }
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [invoices]);
 
-  // Monthly Profitability Bar Chart
-  const monthlyData = [
-    { month: "Jun 2026", revenue: 65000, cost: 32000, profit: 33000 },
-    { month: "Jul 2026", revenue: 78000, cost: 38000, profit: 40000 },
-    { month: "Aug 2026", revenue: 92000, cost: 41000, profit: 51000 },
-    { month: "Sep 2026", revenue: 110000, cost: 48000, profit: 62000 }
-  ];
+  // Dynamic Monthly Profitability from Live Accounting Data
+  const monthlyData = useMemo(() => {
+    const monthMap = new Map<string, { revenue: number; cost: number }>();
+    invoices.forEach((inv: any) => {
+      const d = inv.date || inv.created_at;
+      if (d) {
+        try {
+          const m = format(new Date(d), "MMM yyyy");
+          const total = getInvoiceTotal(inv.invoice_items, inv.discount_percentage);
+          const cur = monthMap.get(m) || { revenue: 0, cost: 0 };
+          cur.revenue += total;
+          monthMap.set(m, cur);
+        } catch (e) {}
+      }
+    });
+
+    bills.forEach((b: any) => {
+      const d = b.date || b.created_at;
+      if (d) {
+        try {
+          const m = format(new Date(d), "MMM yyyy");
+          const total = getBillTotal(b.bill_items);
+          const cur = monthMap.get(m) || { revenue: 0, cost: 0 };
+          cur.cost += total;
+          monthMap.set(m, cur);
+        } catch (e) {}
+      }
+    });
+
+    if (monthMap.size === 0) {
+      return [{ month: format(new Date(), "MMM yyyy"), revenue: 0, cost: 0, profit: 0 }];
+    }
+
+    return Array.from(monthMap.entries()).map(([month, stats]) => ({
+      month,
+      revenue: stats.revenue,
+      cost: stats.cost,
+      profit: Math.max(0, stats.revenue - stats.cost)
+    }));
+  }, [invoices, bills]);
 
   return (
     <div className="space-y-6">
@@ -285,28 +324,37 @@ export default function ExecutiveDashboard() {
               Revenue by Service Line
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-4 flex flex-col items-center">
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={serviceBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label>
-                  {serviceBreakdown.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          <CardContent className="pt-4 flex flex-col items-center justify-center min-h-[220px]">
+            {serviceBreakdown.length === 0 ? (
+              <div className="text-center py-10 text-xs text-muted-foreground">
+                <PieChartIcon className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                No service invoices recorded yet
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={serviceBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label>
+                      {serviceBreakdown.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="w-full space-y-1 mt-2 text-xs">
+                  {serviceBreakdown.slice(0, 3).map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                        {item.name}
+                      </span>
+                      <span className="font-bold">₹{item.value.toLocaleString("en-IN")}</span>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="w-full space-y-1 mt-2 text-xs">
-              {serviceBreakdown.slice(0, 3).map((item, idx) => (
-                <div key={idx} className="flex justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                    {item.name}
-                  </span>
-                  <span className="font-bold">₹{item.value.toLocaleString("en-IN")}</span>
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

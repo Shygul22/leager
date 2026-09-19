@@ -48,30 +48,8 @@ export default function SalesOrders() {
       }
       const { data, error } = await query;
       if (error) {
-        return [
-          {
-            id: "so-1",
-            order_number: "SO-202609-001",
-            client_name: "Zenith Global Tech",
-            order_date: "2026-09-05",
-            delivery_date: "2026-09-25",
-            status: "in_progress",
-            subtotal: 12000,
-            tax_amount: 2160,
-            total_amount: 14160
-          },
-          {
-            id: "so-2",
-            order_number: "SO-202609-002",
-            client_name: "Apex Logistics Corp",
-            order_date: "2026-09-10",
-            delivery_date: "2026-09-30",
-            status: "confirmed",
-            subtotal: 8000,
-            tax_amount: 1440,
-            total_amount: 9440
-          }
-        ];
+        console.warn("Could not fetch sales orders:", error.message);
+        return [];
       }
       return data || [];
     }

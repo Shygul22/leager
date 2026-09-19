@@ -36,17 +36,8 @@ export default function CreditNotes() {
       }
       const { data, error } = await query;
       if (error) {
-        return [
-          {
-            id: "cn-1",
-            credit_note_number: "CN-202609-001",
-            client_name: "Apex Logistics",
-            date: "2026-09-12",
-            amount: 500,
-            reason: "Early payment billing discount adjustment",
-            status: "applied"
-          }
-        ];
+        console.warn("Could not fetch credit notes:", error.message);
+        return [];
       }
       return data || [];
     }

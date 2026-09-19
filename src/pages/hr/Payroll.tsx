@@ -23,14 +23,11 @@ export default function Payroll() {
       let query = supabase.from("employees").select("*").eq("status", "active");
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          { id: "e1", name: "Shygul Akbar", designation: "Founder & Lead Architect", salary: 75000, bank_account: "45505327860", ifsc_code: "SBIN0011071" },
-          { id: "e2", name: "Senior Full-Stack Engineer", designation: "Lead Developer", salary: 50000, bank_account: "50100428192", ifsc_code: "HDFC0001234" },
-          { id: "e3", name: "Accounts & Compliance Lead", designation: "Finance Manager", salary: 35000, bank_account: "33100291823", ifsc_code: "ICIC0005678" }
-        ];
+      if (error) {
+        console.warn("Could not fetch payroll employees:", error.message);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 
@@ -201,25 +198,39 @@ export default function Payroll() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payrollItems.map((item) => (
-                <TableRow key={item.id} className="hover:bg-slate-50">
-                  <TableCell>
-                    <span className="font-semibold text-xs text-slate-900">{item.name}</span>
-                    <p className="text-[10px] text-muted-foreground">{item.designation}</p>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-slate-600">{item.bank_account}</TableCell>
-                  <TableCell className="text-right font-mono text-xs">₹{item.basic.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="text-right font-mono text-xs">₹{item.hra.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="text-right font-mono text-xs font-bold">₹{item.gross.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="text-right font-mono text-xs font-semibold text-rose-700">−₹{item.totalDeductions.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="text-right font-mono text-xs font-black text-emerald-700">₹{item.netSalary.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="text-center">
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => toast.success(`Generated Payslip for ${item.name}`)}>
-                      <Download className="h-3 w-3 mr-1" /> Payslip
-                    </Button>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-xs text-muted-foreground">
+                    Loading payroll records...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : payrollItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-10 text-xs text-muted-foreground">
+                    No active employees found for this account. Add employees in the Employees module to run payroll.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                payrollItems.map((item) => (
+                  <TableRow key={item.id} className="hover:bg-slate-50">
+                    <TableCell>
+                      <span className="font-semibold text-xs text-slate-900">{item.name}</span>
+                      <p className="text-[10px] text-muted-foreground">{item.designation}</p>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-600">{item.bank_account}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">₹{item.basic.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">₹{item.hra.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-right font-mono text-xs font-bold">₹{item.gross.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-right font-mono text-xs font-semibold text-rose-700">−₹{item.totalDeductions.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-right font-mono text-xs font-black text-emerald-700">₹{item.netSalary.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-center">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => toast.success(`Generated Payslip for ${item.name}`)}>
+                        <Download className="h-3 w-3 mr-1" /> Payslip
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

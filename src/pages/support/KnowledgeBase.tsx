@@ -31,31 +31,7 @@ export default function KnowledgeBase() {
       let query = supabase.from("knowledge_base").select("*").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "kb-1",
-            title: "Standard Operating Procedure: Client Invoicing & Payment Terms",
-            category: "Finance & Billing",
-            content: "All client invoices must be issued with 15-day payment terms (Net 15). Quotations over ₹50,000 require client PO sign-off and 50% mobilization advance before sprint kickoff.",
-            created_at: "2026-09-01"
-          },
-          {
-            id: "kb-2",
-            title: "Developer Workstation Setup & Security Guidelines",
-            category: "IT Operations",
-            content: "All engineering laptops must have full-disk encryption (BitLocker), 2-factor authentication enabled across Git and cloud environments, and adhere to local backup policies.",
-            created_at: "2026-09-05"
-          },
-          {
-            id: "kb-3",
-            title: "Support Ticket SLA Response Matrix",
-            category: "Helpdesk & SLA",
-            content: "Urgent/Critical Severity: < 1 hour response, 4 hours resolution. High: 4 hours response, 24 hours resolution. Medium: 8 hours response. Low: 24 hours response.",
-            created_at: "2026-09-10"
-          }
-        ];
-      }
+      if (error || !data) return [];
       return data;
     }
   });
@@ -154,33 +130,46 @@ export default function KnowledgeBase() {
       </div>
 
       {/* Articles Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredArticles.map((art: any) => (
-          <Card key={art.id} className="shadow-sm hover:shadow-md transition-all border">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between mb-1">
-                <Badge variant="outline" className="text-[10px] font-bold uppercase">
-                  {art.category}
-                </Badge>
-              </div>
-              <CardTitle className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">
-                {art.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 mb-3">
-                {art.content}
-              </p>
-              <div className="text-[10px] text-muted-foreground flex justify-between items-center pt-2 border-t">
-                <span>Published {art.created_at}</span>
-                <span className="font-semibold text-primary flex items-center gap-0.5 cursor-pointer hover:underline">
-                  Read SOP <ChevronRight className="h-3 w-3" />
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {filteredArticles.length === 0 ? (
+        <Card className="border-dashed p-12 text-center flex flex-col items-center justify-center">
+          <HelpCircle className="h-10 w-10 text-muted-foreground/50 mb-3" />
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Knowledge Base Articles Found</h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+            No SOPs or documentation have been published for this organization yet. Click "Write SOP / Article" to create your first guide.
+          </p>
+          <Button size="sm" className="mt-4 text-xs font-semibold" onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Write SOP / Article
+          </Button>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredArticles.map((art: any) => (
+            <Card key={art.id} className="shadow-sm hover:shadow-md transition-all border">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase">
+                    {art.category}
+                  </Badge>
+                </div>
+                <CardTitle className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">
+                  {art.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 mb-3">
+                  {art.content}
+                </p>
+                <div className="text-[10px] text-muted-foreground flex justify-between items-center pt-2 border-t">
+                  <span>Published {art.created_at}</span>
+                  <span className="font-semibold text-primary flex items-center gap-0.5 cursor-pointer hover:underline">
+                    Read SOP <ChevronRight className="h-3 w-3" />
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

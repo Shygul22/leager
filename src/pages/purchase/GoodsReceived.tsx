@@ -35,16 +35,8 @@ export default function GoodsReceived() {
       }
       const { data, error } = await query;
       if (error) {
-        return [
-          {
-            id: "grn-1",
-            grn_number: "GRN-202609-001",
-            supplier_name: "Dell Technologies India",
-            received_date: "2026-09-12",
-            status: "accepted",
-            notes: "Dell Latitude 5540 developer workstations verified and tagged"
-          }
-        ];
+        console.warn("Could not fetch goods receipts:", error.message);
+        return [];
       }
       return data || [];
     }

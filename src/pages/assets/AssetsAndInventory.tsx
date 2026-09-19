@@ -35,50 +35,11 @@ export default function AssetsAndInventory() {
       let query = supabase.from("it_assets").select("*, employees(name)").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "ast-1",
-            asset_tag: "ZJ-AST-2026-001",
-            name: "Dell Latitude 5540 i7 32GB RAM",
-            category: "Laptop",
-            serial_number: "DL-8829103",
-            purchase_date: "2026-06-15",
-            purchase_cost: 85000,
-            current_value: 78000,
-            status: "in_use",
-            employees: { name: "Shygul Akbar" },
-            location: "Executive Office"
-          },
-          {
-            id: "ast-2",
-            asset_tag: "ZJ-AST-2026-002",
-            name: "Dell UltraSharp 27-inch 4K Monitor",
-            category: "Monitor",
-            serial_number: "DL-MN-44912",
-            purchase_date: "2026-07-10",
-            purchase_cost: 32000,
-            current_value: 29500,
-            status: "in_use",
-            employees: { name: "Senior Full-Stack Engineer" },
-            location: "Dev Pod 1"
-          },
-          {
-            id: "ast-3",
-            asset_tag: "ZJ-AST-2026-003",
-            name: "JetBrains All Products Pack Team License",
-            category: "Software License",
-            serial_number: "JB-2026-LIC-099",
-            purchase_date: "2026-01-10",
-            purchase_cost: 45000,
-            current_value: 30000,
-            status: "in_use",
-            employees: { name: "Engineering Team" },
-            location: "Cloud"
-          }
-        ];
+      if (error) {
+        console.warn("Could not fetch IT assets:", error.message);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 

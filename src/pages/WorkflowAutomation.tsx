@@ -34,42 +34,7 @@ export default function WorkflowAutomation() {
       let query = supabase.from("workflows").select("*").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "wf-1",
-            name: "High-Value Quotation Manager Approval",
-            trigger_event: "quotation_created",
-            conditions: [{ field: "amount", operator: ">", value: 50000 }],
-            actions: [{ type: "require_manager_approval", target: "Executive Director" }],
-            is_active: true
-          },
-          {
-            id: "wf-2",
-            name: "Automatic Sales Order to Project Kickoff",
-            trigger_event: "sales_order_confirmed",
-            conditions: [{ field: "status", operator: "==", value: "confirmed" }],
-            actions: [{ type: "create_project", target: "Operations Board" }],
-            is_active: true
-          },
-          {
-            id: "wf-3",
-            name: "Invoice Overdue Escalation Reminder",
-            trigger_event: "invoice_overdue",
-            conditions: [{ field: "days_past_due", operator: ">", value: 15 }],
-            actions: [{ type: "send_payment_reminder", channel: "Email & WhatsApp" }],
-            is_active: true
-          },
-          {
-            id: "wf-4",
-            name: "Automatic Double-Entry Ledger Posting on Payment",
-            trigger_event: "payment_received",
-            conditions: [{ field: "payment_status", operator: "==", value: "paid" }],
-            actions: [{ type: "post_journal_entry", target: "Cash & Bank -> AR" }],
-            is_active: true
-          }
-        ];
-      }
+      if (error || !data) return [];
       return data;
     }
   });
@@ -196,33 +161,41 @@ export default function WorkflowAutomation() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {workflows.map((wf: any) => (
-                <TableRow key={wf.id} className="hover:bg-slate-50">
-                  <TableCell className="font-semibold text-xs text-slate-900">{wf.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold">
-                      {wf.trigger_event}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-600 font-mono">
-                    {wf.conditions?.[0] ? `${wf.conditions[0].field} ${wf.conditions[0].operator || ">="} ${wf.conditions[0].value}` : "Always"}
-                  </TableCell>
-                  <TableCell className="text-xs text-blue-700 font-medium">
-                    <span className="flex items-center gap-1.5">
-                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                      {wf.actions?.[0]?.type || "Execute automated task"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Switch checked={wf.is_active} onCheckedChange={() => toast.success("Workflow rule status updated")} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" className="h-7 text-xs font-semibold text-primary" onClick={() => toast.success(`Simulated execution of: ${wf.name}`)}>
-                      <Play className="h-3 w-3 mr-1" /> Test
-                    </Button>
+              {workflows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground text-xs">
+                    No active workflow automation rules configured. Click "Create Rule" to automate business events.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                workflows.map((wf: any) => (
+                  <TableRow key={wf.id} className="hover:bg-slate-50">
+                    <TableCell className="font-semibold text-xs text-slate-900">{wf.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                        {wf.trigger_event}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600 font-mono">
+                      {wf.conditions?.[0] ? `${wf.conditions[0].field} ${wf.conditions[0].operator || ">="} ${wf.conditions[0].value}` : "Always"}
+                    </TableCell>
+                    <TableCell className="text-xs text-blue-700 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                        {wf.actions?.[0]?.type || "Execute automated task"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={wf.is_active} onCheckedChange={() => toast.success("Workflow rule status updated")} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="ghost" className="h-7 text-xs font-semibold text-primary" onClick={() => toast.success(`Simulated execution of: ${wf.name}`)}>
+                        <Play className="h-3 w-3 mr-1" /> Test
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

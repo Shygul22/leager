@@ -33,14 +33,10 @@ export default function AttendanceAndLeave() {
   const { data: employees = [] } = useQuery({
     queryKey: ["employees-hr", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("employees").select("id, name, designation, department");
-      if (error || !data || data.length === 0) {
-        return [
-          { id: "e1", name: "Shygul Akbar", designation: "Founder & Executive Director", department: "Executive" },
-          { id: "e2", name: "Senior Full-Stack Engineer", designation: "Lead Developer", department: "Engineering" },
-          { id: "e3", name: "Accounts & Compliance Lead", designation: "Finance Manager", department: "Finance" }
-        ];
-      }
+      let query = supabase.from("employees").select("id, name, designation, department");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
+      if (error || !data) return [];
       return data;
     }
   });
@@ -52,30 +48,7 @@ export default function AttendanceAndLeave() {
       let query = supabase.from("employee_attendance").select("*, employees(name, designation)").order("date", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "att-1",
-            date: format(new Date(), "yyyy-MM-dd"),
-            check_in: "09:30 AM",
-            check_out: "06:30 PM",
-            working_hours: 8.5,
-            overtime_hours: 0.5,
-            status: "present",
-            employees: { name: "Shygul Akbar", designation: "Founder & Executive Director" }
-          },
-          {
-            id: "att-2",
-            date: format(new Date(), "yyyy-MM-dd"),
-            check_in: "09:45 AM",
-            check_out: "06:45 PM",
-            working_hours: 8.0,
-            overtime_hours: 0.0,
-            status: "present",
-            employees: { name: "Senior Full-Stack Engineer", designation: "Lead Developer" }
-          }
-        ];
-      }
+      if (error || !data) return [];
       return data;
     }
   });
@@ -84,23 +57,10 @@ export default function AttendanceAndLeave() {
   const { data: leaveRequests = [] } = useQuery({
     queryKey: ["leave-requests", activeAccountId],
     queryFn: async () => {
-      let query = supabase.from("leave_requests").select("*, employees(name, designation)").order("created_at", { ascending: false });
+      let query = supabase.from("employee_leaves").select("*, employees(name, designation)").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "lr-1",
-            leave_type: "paid",
-            start_date: "2026-09-24",
-            end_date: "2026-09-25",
-            days_count: 2,
-            reason: "Personal family event",
-            status: "approved",
-            employees: { name: "Senior Full-Stack Engineer", designation: "Lead Developer" }
-          }
-        ];
-      }
+      if (error || !data) return [];
       return data;
     }
   });
@@ -117,7 +77,7 @@ export default function AttendanceAndLeave() {
         status: "pending",
         account_id: activeAccountId || null
       };
-      const { error } = await supabase.from("leave_requests").insert(payload);
+      const { error } = await supabase.from("employee_leaves").insert(payload);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -133,7 +93,7 @@ export default function AttendanceAndLeave() {
 
   const updateLeaveStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("leave_requests").update({ status }).eq("id", id);
+      const { error } = await supabase.from("employee_leaves").update({ status }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -247,21 +207,29 @@ export default function AttendanceAndLeave() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {attendanceList.map((att: any) => (
-                    <TableRow key={att.id} className="hover:bg-slate-50">
-                      <TableCell className="text-xs font-medium text-slate-700">{att.date}</TableCell>
-                      <TableCell className="text-xs font-semibold text-slate-900">{att.employees?.name || "Employee"}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{att.check_in || "09:30 AM"}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{att.check_out || "06:30 PM"}</TableCell>
-                      <TableCell className="text-right font-mono text-xs font-bold">{att.working_hours || 8.0} hrs</TableCell>
-                      <TableCell className="text-right font-mono text-xs text-emerald-600 font-bold">{att.overtime_hours || 0} hrs</TableCell>
-                      <TableCell className="text-center">
-                        <Badge className="bg-emerald-600 text-white text-[10px] uppercase">
-                          {att.status || "Present"}
-                        </Badge>
+                  {attendanceList.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground text-xs">
+                        No biometric or manual attendance records found.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    attendanceList.map((att: any) => (
+                      <TableRow key={att.id} className="hover:bg-slate-50">
+                        <TableCell className="text-xs font-medium text-slate-700">{att.date}</TableCell>
+                        <TableCell className="text-xs font-semibold text-slate-900">{att.employees?.name || "Employee"}</TableCell>
+                        <TableCell className="text-xs text-slate-600">{att.check_in || "09:30 AM"}</TableCell>
+                        <TableCell className="text-xs text-slate-600">{att.check_out || "06:30 PM"}</TableCell>
+                        <TableCell className="text-right font-mono text-xs font-bold">{att.working_hours || 8.0} hrs</TableCell>
+                        <TableCell className="text-right font-mono text-xs text-emerald-600 font-bold">{att.overtime_hours || 0} hrs</TableCell>
+                        <TableCell className="text-center">
+                          <Badge className="bg-emerald-600 text-white text-[10px] uppercase">
+                            {att.status || "Present"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -285,36 +253,44 @@ export default function AttendanceAndLeave() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {leaveRequests.map((lr: any) => (
-                    <TableRow key={lr.id} className="hover:bg-slate-50">
-                      <TableCell className="text-xs font-semibold text-slate-900">{lr.employees?.name || "Employee"}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px] uppercase">
-                          {lr.leave_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{lr.start_date} to {lr.end_date}</TableCell>
-                      <TableCell className="text-center font-bold text-xs">{lr.days_count}</TableCell>
-                      <TableCell className="text-xs text-slate-700">{lr.reason}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge className={lr.status === "approved" ? "bg-emerald-600 text-white" : lr.status === "rejected" ? "bg-rose-600 text-white" : "bg-amber-600 text-white"}>
-                          {lr.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {lr.status === "pending" && (
-                          <div className="flex justify-end gap-1.5">
-                            <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-600 font-bold" onClick={() => updateLeaveStatusMutation.mutate({ id: lr.id, status: "approved" })}>
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-7 text-xs text-rose-600" onClick={() => updateLeaveStatusMutation.mutate({ id: lr.id, status: "rejected" })}>
-                              Reject
-                            </Button>
-                          </div>
-                        )}
+                  {leaveRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground text-xs">
+                        No leave applications submitted yet.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    leaveRequests.map((lr: any) => (
+                      <TableRow key={lr.id} className="hover:bg-slate-50">
+                        <TableCell className="text-xs font-semibold text-slate-900">{lr.employees?.name || "Employee"}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px] uppercase">
+                            {lr.leave_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{lr.start_date} to {lr.end_date}</TableCell>
+                        <TableCell className="text-center font-bold text-xs">{lr.days_count}</TableCell>
+                        <TableCell className="text-xs text-slate-700">{lr.reason}</TableCell>
+                        <TableCell className="text-center">
+                          <Badge className={lr.status === "approved" ? "bg-emerald-600 text-white" : lr.status === "rejected" ? "bg-rose-600 text-white" : "bg-amber-600 text-white"}>
+                            {lr.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {lr.status === "pending" && (
+                            <div className="flex justify-end gap-1.5">
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-600 font-bold" onClick={() => updateLeaveStatusMutation.mutate({ id: lr.id, status: "approved" })}>
+                                Approve
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-rose-600" onClick={() => updateLeaveStatusMutation.mutate({ id: lr.id, status: "rejected" })}>
+                                Reject
+                              </Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>

@@ -33,28 +33,22 @@ export default function Timesheets() {
   const { data: projects = [] } = useQuery({
     queryKey: ["projects-ts", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("projects").select("id, title");
-      if (error || !data || data.length === 0) {
-        return [
-          { id: "p1", title: "Enterprise ERP Cloud Migration" },
-          { id: "p2", title: "Mobile Banking & Payments App" }
-        ];
-      }
-      return data;
+      let query = supabase.from("projects").select("id, title");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
     }
   });
 
   const { data: employees = [] } = useQuery({
     queryKey: ["employees-ts", activeAccountId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("employees").select("id, name, designation");
-      if (error || !data || data.length === 0) {
-        return [
-          { id: "e1", name: "Shygul Akbar", designation: "Founder & Lead Architect" },
-          { id: "e2", name: "Senior Full-Stack Engineer", designation: "Staff Developer" }
-        ];
-      }
-      return data;
+      let query = supabase.from("employees").select("id, name, designation");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
     }
   });
 
@@ -66,33 +60,11 @@ export default function Timesheets() {
         query = query.eq("account_id", activeAccountId);
       }
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "ts-1",
-            date: "2026-09-15",
-            hours: 8.0,
-            billable: true,
-            hourly_rate: 1200,
-            description: "Database architecture and double-entry ledger integration",
-            status: "approved",
-            projects: { title: "Enterprise ERP Cloud Migration" },
-            employees: { name: "Shygul Akbar" }
-          },
-          {
-            id: "ts-2",
-            date: "2026-09-16",
-            hours: 6.5,
-            billable: true,
-            hourly_rate: 850,
-            description: "Frontend UI components and reconciliation reports",
-            status: "approved",
-            projects: { title: "Enterprise ERP Cloud Migration" },
-            employees: { name: "Senior Full-Stack Engineer" }
-          }
-        ];
+      if (error) {
+        console.warn("Could not fetch timesheets:", error.message);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 

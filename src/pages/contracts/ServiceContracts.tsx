@@ -35,37 +35,11 @@ export default function ServiceContracts() {
       let query = supabase.from("service_contracts").select("*").order("created_at", { ascending: false });
       if (activeAccountId) query = query.eq("account_id", activeAccountId);
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "sc-1",
-            contract_number: "AMC-2026-001",
-            client_name: "Zenith Global Tech",
-            service_name: "Cloud Server 24/7 SLA & Maintenance",
-            contract_type: "AMC",
-            start_date: "2026-09-01",
-            end_date: "2027-08-31",
-            billing_frequency: "Monthly",
-            contract_value: 180000,
-            status: "active",
-            sla_hours: 4
-          },
-          {
-            id: "sc-2",
-            contract_number: "SLA-2026-002",
-            client_name: "Apex Logistics Corp",
-            service_name: "ERP Application L2 Support & Bug Fixes",
-            contract_type: "SLA",
-            start_date: "2026-07-01",
-            end_date: "2027-06-30",
-            billing_frequency: "Quarterly",
-            contract_value: 95000,
-            status: "active",
-            sla_hours: 8
-          }
-        ];
+      if (error) {
+        console.warn("Could not fetch service contracts:", error.message);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 

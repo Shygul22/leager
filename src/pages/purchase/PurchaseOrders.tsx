@@ -48,19 +48,8 @@ export default function PurchaseOrders() {
       }
       const { data, error } = await query;
       if (error) {
-        return [
-          {
-            id: "po-1",
-            po_number: "PO-202609-001",
-            supplier_name: "Dell Technologies India",
-            order_date: "2026-09-08",
-            expected_delivery_date: "2026-09-22",
-            status: "issued",
-            subtotal: 55000,
-            tax_amount: 9900,
-            total_amount: 64900
-          }
-        ];
+        console.warn("Could not fetch purchase orders:", error.message);
+        return [];
       }
       return data || [];
     }

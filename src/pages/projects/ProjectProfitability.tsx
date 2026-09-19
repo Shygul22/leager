@@ -19,25 +19,11 @@ export default function ProjectProfitability() {
         query = query.eq("account_id", activeAccountId);
       }
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        return [
-          {
-            id: "p1",
-            title: "Enterprise ERP Cloud Migration",
-            clients: { name: "Zenith Global Tech" },
-            budget: 150000,
-            status: "in_progress"
-          },
-          {
-            id: "p2",
-            title: "Mobile Banking & Payments App",
-            clients: { name: "Apex Logistics Corp" },
-            budget: 85000,
-            status: "in_progress"
-          }
-        ];
+      if (error) {
+        console.warn("Could not fetch projects:", error.message);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 

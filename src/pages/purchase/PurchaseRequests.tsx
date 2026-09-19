@@ -37,28 +37,8 @@ export default function PurchaseRequests() {
       }
       const { data, error } = await query;
       if (error) {
-        return [
-          {
-            id: "pr-1",
-            request_number: "PR-202609-001",
-            department: "Engineering",
-            estimated_cost: 45000,
-            priority: "high",
-            reason: "High-performance developer workstations upgrade",
-            status: "approved",
-            created_at: "2026-09-10"
-          },
-          {
-            id: "pr-2",
-            request_number: "PR-202609-002",
-            department: "IT Infrastructure",
-            estimated_cost: 15000,
-            priority: "medium",
-            reason: "Annual cloud backup storage license renewal",
-            status: "pending",
-            created_at: "2026-09-14"
-          }
-        ];
+        console.warn("Could not fetch purchase requests:", error.message);
+        return [];
       }
       return data || [];
     }
