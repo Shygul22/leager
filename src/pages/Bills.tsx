@@ -12,9 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, isToday, isThisWeek, parseISO } from "date-fns";
-import { Plus, Trash2, Edit, X, Receipt, UserCircle } from "lucide-react";
+import { Plus, Trash2, Edit, X, Receipt, UserCircle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { PurchaseVoucherModal, PurchaseVoucherData } from "@/components/vouchers/PurchaseVoucherModal";
 
 type BillItem = { id?: string; description: string; quantity: number; rate: number; gst: number; mrp?: number; discount?: number };
 type Bill = {
@@ -51,6 +52,59 @@ export default function Bills() {
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [selectedRange, setSelectedRange] = useState<string>(format(new Date(), "MMM yyyy"));
+
+    // Official Purchase Voucher State
+    const [selectedPurchaseVoucher, setSelectedPurchaseVoucher] = useState<PurchaseVoucherData | null>(null);
+    const [isPurchaseVoucherOpen, setIsPurchaseVoucherOpen] = useState(false);
+
+    const openPurchaseVoucherForBill = (bill: any) => {
+        const yearShort = format(new Date(bill.date || bill.created_at || Date.now()), "yy");
+        const nextYearShort = (parseInt(yearShort) + 1).toString();
+        const hashSeq = Math.abs(bill.id.split("-").reduce((a: number, b: string) => a + (parseInt(b, 16) || 123), 0)) % 900 + 100;
+        
+        const items = (bill.bill_items && bill.bill_items.length > 0)
+            ? bill.bill_items.map((i: any) => {
+                const taxable = (Number(i.quantity) || 1) * (Number(i.rate) || 0);
+                const gstP = Number(i.gst) || 18;
+                const gstAmt = (taxable * gstP) / 100;
+                return {
+                    description: i.description,
+                    hsn: "9983",
+                    quantity: Number(i.quantity) || 1,
+                    rate: Number(i.rate) || 0,
+                    taxableValue: taxable,
+                    gstPercent: gstP,
+                    gstAmount: gstAmt,
+                    total: taxable + gstAmt
+                };
+            })
+            : [{
+                description: bill.notes || `Purchase against Bill ${bill.bill_number}`,
+                hsn: "9983",
+                quantity: 1,
+                rate: Math.round(Number(bill.paid_amount || 1000) / 1.18),
+                taxableValue: Math.round(Number(bill.paid_amount || 1000) / 1.18),
+                gstPercent: 18,
+                gstAmount: Math.round((Number(bill.paid_amount || 1000)) - (Number(bill.paid_amount || 1000) / 1.18)),
+                total: Number(bill.paid_amount || 1000)
+            }];
+
+        setSelectedPurchaseVoucher({
+            voucherNo: `ZJ/PV/${yearShort}-${nextYearShort}/${hashSeq}`,
+            voucherDate: format(new Date(bill.date || bill.created_at || Date.now()), "dd/MM/yyyy"),
+            financialYear: `20${yearShort}-20${nextYearShort}`,
+            vendorInvoiceNo: bill.bill_number || `BILL-${hashSeq}`,
+            vendorInvoiceDate: format(new Date(bill.date || bill.created_at || Date.now()), "dd/MM/yyyy"),
+            costCenter: "Zenjourney InfoTech",
+            vendorName: bill.suppliers?.name || "Vendor",
+            vendorGstin: bill.suppliers?.gstin || "NIL",
+            natureOfPurchase: (bill.category as any) || "Services",
+            paymentMode: "NEFT / RTGS / IMPS",
+            items,
+            narration: bill.notes || `Purchase Bill ${bill.bill_number}`
+        });
+        setIsPurchaseVoucherOpen(true);
+    };
 
     const { data: profile } = useQuery({
         queryKey: ["profile", user?.id],
@@ -415,6 +469,15 @@ export default function Bills() {
 
                                         <TableCell className="text-right">
                                             <div className="flex justify-end gap-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    title="View & Print Official Purchase Voucher"
+                                                    className="text-[#0c3656] hover:text-blue-700 hover:bg-blue-50"
+                                                    onClick={() => openPurchaseVoucherForBill(bill)}
+                                                >
+                                                    <Receipt className="h-4 w-4" />
+                                                </Button>
                                                 <Button variant="ghost" size="icon" onClick={() => openEdit(bill)}><Edit className="h-4 w-4" /></Button>
                                                 {(role === "admin" || role === "accounts_manager") && (
                                                     <Button variant="ghost" size="icon" onClick={() => deleteBill.mutate(bill.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
@@ -585,6 +648,15 @@ export default function Bills() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Official Purchase Voucher Modal */}
+            {selectedPurchaseVoucher && (
+                <PurchaseVoucherModal
+                    open={isPurchaseVoucherOpen}
+                    onOpenChange={setIsPurchaseVoucherOpen}
+                    data={selectedPurchaseVoucher}
+                />
+            )}
         </div>
     );
 }

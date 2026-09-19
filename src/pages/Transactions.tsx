@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, isToday, isThisWeek, parseISO } from "date-fns";
-import { Plus, Pencil, Trash2, Download, Upload, UserCircle, Receipt } from "lucide-react";
+import { Plus, Pencil, Trash2, Download, Upload, UserCircle, Receipt, FileText } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +18,9 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { PurchaseVoucherModal, PurchaseVoucherData } from "@/components/vouchers/PurchaseVoucherModal";
+import { ReimbursementVoucherModal, ReimbursementVoucherData } from "@/components/vouchers/ReimbursementVoucherModal";
+import { CreateVoucherModal } from "@/components/vouchers/CreateVoucherModal";
 
 type Transaction = {
   id: string;
@@ -55,6 +58,14 @@ export default function Transactions() {
   const [selectedTxs, setSelectedTxs] = useState<string[]>([]);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState({ description: "", amount: "", type: "income", category: "General", date: format(new Date(), "yyyy-MM-dd"), employee_id: "", client_id: "" });
+
+  // Voucher Modals State
+  const [selectedPurchaseVoucher, setSelectedPurchaseVoucher] = useState<PurchaseVoucherData | null>(null);
+  const [isPurchaseVoucherOpen, setIsPurchaseVoucherOpen] = useState(false);
+  const [selectedReimbVoucher, setSelectedReimbVoucher] = useState<ReimbursementVoucherData | null>(null);
+  const [isReimbVoucherOpen, setIsReimbVoucherOpen] = useState(false);
+  const [isCreateVoucherOpen, setIsCreateVoucherOpen] = useState(false);
+  const [createVoucherType, setCreateVoucherType] = useState<"purchase_voucher" | "reimbursement">("purchase_voucher");
 
   const { data: profile } = useQuery({
     queryKey: ["profile", user?.id],
@@ -173,6 +184,84 @@ export default function Transactions() {
     },
     enabled: !!user,
   });
+
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["suppliers-tx", user?.id, role, activeAccountId],
+    queryFn: async () => {
+      if (!user) return [];
+      let query = supabase.from("suppliers").select("*");
+      if (activeAccountId) {
+        query = query.or(`account_id.eq.${activeAccountId},user_id.eq.${user.id}`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
+      const { data, error } = await query.order("name", { ascending: true });
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!user,
+  });
+
+  const openVoucherForTransaction = (t: Transaction) => {
+    const yearShort = format(new Date(t.date || t.created_at || Date.now()), "yy");
+    const nextYearShort = (parseInt(yearShort) + 1).toString();
+    const hashSeq = Math.abs(t.id.split("-").reduce((a, b) => a + (parseInt(b, 16) || 123), 0)) % 900 + 100;
+
+    if (t.type === "reimbursement" || t.employee_id) {
+      const emp = employees.find((e: any) => e.id === t.employee_id);
+      setSelectedReimbVoucher({
+        voucherNo: `ZJ/EV/${yearShort}-${nextYearShort}/${hashSeq}`,
+        voucherDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
+        financialYear: `20${yearShort}-20${nextYearShort}`,
+        claimantName: emp?.name || t.employees?.name || "Employee Claimant",
+        employeeId: t.employee_id ? `ZJ-EMP-${t.employee_id.slice(0, 4).toUpperCase()}` : "ZJ-EMP-01",
+        designation: emp?.designation || "Executive Staff",
+        department: emp?.department || "Operations",
+        vertical: "Zenjourney InfoTech",
+        purpose: t.description,
+        items: [
+          {
+            date: format(new Date(t.date || t.created_at || Date.now()), "yyyy-MM-dd"),
+            categoryCode: t.category?.slice(0, 2).toUpperCase() || "CM",
+            description: t.description,
+            billReceiptNo: `REC-${hashSeq}`,
+            amountClaimed: Number(t.amount) || 0,
+            approvedAmount: Number(t.amount) || 0
+          }
+        ]
+      });
+      setIsReimbVoucherOpen(true);
+    } else {
+      const amountVal = Number(t.amount) || 0;
+      const rateVal = Math.round(amountVal / 1.18);
+      const gstVal = Math.round(amountVal - rateVal);
+
+      setSelectedPurchaseVoucher({
+        voucherNo: `ZJ/PV/${yearShort}-${nextYearShort}/${hashSeq}`,
+        voucherDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
+        financialYear: `20${yearShort}-20${nextYearShort}`,
+        vendorInvoiceNo: `INV-${hashSeq}`,
+        vendorInvoiceDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
+        costCenter: "Zenjourney InfoTech",
+        vendorName: t.clients?.name || (t.description.includes(":") ? t.description.split(":")[0] : "Vendor / Supplier"),
+        natureOfPurchase: "Services",
+        items: [
+          {
+            description: t.description,
+            hsn: "9983",
+            quantity: 1,
+            rate: rateVal,
+            taxableValue: rateVal,
+            gstPercent: 18,
+            gstAmount: gstVal,
+            total: amountVal
+          }
+        ],
+        narration: t.description
+      });
+      setIsPurchaseVoucherOpen(true);
+    }
+  };
 
   const transactions = useMemo(() => {
     const empMap = new Map(employees.map((e: any) => [e.id, e.name]));
@@ -461,6 +550,26 @@ export default function Transactions() {
               <DropdownMenuItem onClick={exportToPDF}>Export as PDF</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setCreateVoucherType("purchase_voucher");
+              setIsCreateVoucherOpen(true);
+            }}
+            className="flex-1 sm:flex-none border-blue-300 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950 font-semibold text-xs"
+          >
+            <Receipt className="mr-1.5 h-3.5 w-3.5 text-blue-600" /> + Purchase Voucher
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setCreateVoucherType("reimbursement");
+              setIsCreateVoucherOpen(true);
+            }}
+            className="flex-1 sm:flex-none border-purple-300 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950 font-semibold text-xs"
+          >
+            <FileText className="mr-1.5 h-3.5 w-3.5 text-purple-600" /> + Reimbursement Voucher
+          </Button>
           <Button onClick={openAdd} className="flex-1 sm:flex-none"><Plus className="mr-2 h-4 w-4" /> Add Transaction</Button>
         </div>
       </div>
@@ -588,6 +697,15 @@ export default function Transactions() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="View & Print Official Voucher"
+                        className="text-[#0c3656] hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => openVoucherForTransaction(t)}
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(t)}><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => handleDelete(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
@@ -654,6 +772,42 @@ export default function Transactions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Official Voucher Modals */}
+      {selectedPurchaseVoucher && (
+        <PurchaseVoucherModal
+          open={isPurchaseVoucherOpen}
+          onOpenChange={setIsPurchaseVoucherOpen}
+          data={selectedPurchaseVoucher}
+        />
+      )}
+
+      {selectedReimbVoucher && (
+        <ReimbursementVoucherModal
+          open={isReimbVoucherOpen}
+          onOpenChange={setIsReimbVoucherOpen}
+          data={selectedReimbVoucher}
+        />
+      )}
+
+      <CreateVoucherModal
+        open={isCreateVoucherOpen}
+        onOpenChange={setIsCreateVoucherOpen}
+        defaultType={createVoucherType}
+        userId={user?.id || ""}
+        accountId={activeAccountId}
+        employees={employees}
+        suppliers={suppliers}
+        onCreated={(type, voucherData) => {
+          if (type === "purchase") {
+            setSelectedPurchaseVoucher(voucherData as PurchaseVoucherData);
+            setIsPurchaseVoucherOpen(true);
+          } else {
+            setSelectedReimbVoucher(voucherData as ReimbursementVoucherData);
+            setIsReimbVoucherOpen(true);
+          }
+        }}
+      />
     </div>
   );
 }
