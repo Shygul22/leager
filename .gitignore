@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Temporary / Scratch scripts & logs
+scratch_*.js
+types_utf8.txt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +31,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
