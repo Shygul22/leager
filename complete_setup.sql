@@ -600,20 +600,167 @@ ALTER TABLE public.custom_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_account_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Helper macro to grant open policy
-DO $$ 
+-- ============================================================================
+-- 20. MULTI-TENANT ROW LEVEL SECURITY (RLS) ISOLATION SYSTEM
+-- ============================================================================
+
+-- Core Multi-Tenancy Helper Functions
+CREATE OR REPLACE FUNCTION public.current_account_id()
+RETURNS UUID AS $$
+    SELECT account_id FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.profiles 
+        WHERE id = auth.uid() AND role = 'super_admin'
+    );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_account_admin()
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.profiles 
+        WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
+    );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- Management Tables Policies
+ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on accounts" ON public.accounts;
+DROP POLICY IF EXISTS "Accounts access policy" ON public.accounts;
+CREATE POLICY "Accounts access policy" ON public.accounts
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR id = public.current_account_id())
+WITH CHECK (public.is_super_admin() OR (id = public.current_account_id() AND public.is_account_admin()));
+
+ALTER TABLE public.licenses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on licenses" ON public.licenses;
+DROP POLICY IF EXISTS "Licenses access policy" ON public.licenses;
+CREATE POLICY "Licenses access policy" ON public.licenses
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR account_id = public.current_account_id())
+WITH CHECK (public.is_super_admin());
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles access policy" ON public.profiles;
+CREATE POLICY "Profiles access policy" ON public.profiles
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR id = auth.uid() OR account_id = public.current_account_id())
+WITH CHECK (public.is_super_admin() OR id = auth.uid() OR (account_id = public.current_account_id() AND public.is_account_admin()));
+
+ALTER TABLE public.custom_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on custom_roles" ON public.custom_roles;
+DROP POLICY IF EXISTS "Custom roles access policy" ON public.custom_roles;
+CREATE POLICY "Custom roles access policy" ON public.custom_roles
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR account_id = public.current_account_id())
+WITH CHECK (public.is_super_admin() OR (account_id = public.current_account_id() AND public.is_account_admin()));
+
+ALTER TABLE public.user_account_memberships ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on user_account_memberships" ON public.user_account_memberships;
+DROP POLICY IF EXISTS "Memberships access policy" ON public.user_account_memberships;
+CREATE POLICY "Memberships access policy" ON public.user_account_memberships
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR user_id = auth.uid() OR account_id = public.current_account_id())
+WITH CHECK (public.is_super_admin() OR (account_id = public.current_account_id() AND public.is_account_admin()));
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on audit_logs" ON public.audit_logs;
+DROP POLICY IF EXISTS "Audit logs access policy" ON public.audit_logs;
+CREATE POLICY "Audit logs access policy" ON public.audit_logs
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR account_id = public.current_account_id())
+WITH CHECK (public.is_super_admin() OR account_id = public.current_account_id());
+
+-- Standard Operations Tenant Tables Policy
+DO $$
 DECLARE
     tbl text;
+    standard_tables text[] := ARRAY[
+        'clients', 'suppliers', 'products', 'transactions', 'invoices', 
+        'bills', 'vendor_payouts', 'vendor_payout_audit_logs', 'quotations', 
+        'employees', 'projects', 'tickets', 'bugs', 'document_folders', 'documents', 
+        'document_audit_logs', 'shareholders', 'client_tracking', 'lead_tracking', 
+        'facebook_lead_configs'
+    ];
 BEGIN
-    FOR tbl IN 
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public'
+    FOREACH tbl IN ARRAY standard_tables
     LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Public CRUD on %I" ON public.%I;', tbl, tbl);
-        EXECUTE format('CREATE POLICY "Public CRUD on %I" ON public.%I FOR ALL USING (true) WITH CHECK (true);', tbl, tbl);
+        EXECUTE format('DROP POLICY IF EXISTS "Tenant isolation on %I" ON public.%I;', tbl, tbl);
+        EXECUTE format('
+            CREATE POLICY "Tenant isolation on %I" ON public.%I
+            FOR ALL TO authenticated
+            USING (public.is_super_admin() OR account_id = public.current_account_id())
+            WITH CHECK (public.is_super_admin() OR account_id = public.current_account_id());
+        ', tbl, tbl);
     END LOOP;
 END $$;
+
+-- Line Items & Child Records Policies
+ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on invoice_items" ON public.invoice_items;
+DROP POLICY IF EXISTS "Tenant isolation on invoice_items" ON public.invoice_items;
+CREATE POLICY "Tenant isolation on invoice_items" ON public.invoice_items
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.invoices inv WHERE inv.id = invoice_items.invoice_id AND inv.account_id = public.current_account_id()))
+WITH CHECK (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.invoices inv WHERE inv.id = invoice_items.invoice_id AND inv.account_id = public.current_account_id()));
+
+ALTER TABLE public.bill_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on bill_items" ON public.bill_items;
+DROP POLICY IF EXISTS "Tenant isolation on bill_items" ON public.bill_items;
+CREATE POLICY "Tenant isolation on bill_items" ON public.bill_items
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.bills b WHERE b.id = bill_items.bill_id AND b.account_id = public.current_account_id()))
+WITH CHECK (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.bills b WHERE b.id = bill_items.bill_id AND b.account_id = public.current_account_id()));
+
+ALTER TABLE public.quotation_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on quotation_items" ON public.quotation_items;
+DROP POLICY IF EXISTS "Tenant isolation on quotation_items" ON public.quotation_items;
+CREATE POLICY "Tenant isolation on quotation_items" ON public.quotation_items
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.quotations q WHERE q.id = quotation_items.quotation_id AND q.account_id = public.current_account_id()))
+WITH CHECK (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.quotations q WHERE q.id = quotation_items.quotation_id AND q.account_id = public.current_account_id()));
+
+ALTER TABLE public.ticket_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public CRUD on ticket_messages" ON public.ticket_messages;
+DROP POLICY IF EXISTS "Tenant isolation on ticket_messages" ON public.ticket_messages;
+CREATE POLICY "Tenant isolation on ticket_messages" ON public.ticket_messages
+FOR ALL TO authenticated
+USING (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.tickets t WHERE t.id = ticket_messages.ticket_id AND t.account_id = public.current_account_id()))
+WITH CHECK (public.is_super_admin() OR EXISTS (SELECT 1 FROM public.tickets t WHERE t.id = ticket_messages.ticket_id AND t.account_id = public.current_account_id()));
+
+-- Public Invoice & Client Portal Policies (Unauthenticated Access)
+DROP POLICY IF EXISTS "Public invoice view" ON public.invoices;
+CREATE POLICY "Public invoice view" ON public.invoices FOR SELECT TO anon USING (status IN ('draft', 'sent', 'paid', 'partially_paid', 'overdue'));
+
+DROP POLICY IF EXISTS "Public invoice items view" ON public.invoice_items;
+CREATE POLICY "Public invoice items view" ON public.invoice_items FOR SELECT TO anon USING (EXISTS (SELECT 1 FROM public.invoices inv WHERE inv.id = invoice_items.invoice_id));
+
+DROP POLICY IF EXISTS "Client portal login lookup" ON public.clients;
+CREATE POLICY "Client portal login lookup" ON public.clients FOR SELECT TO anon USING (client_number IS NOT NULL AND email IS NOT NULL);
+
+DROP POLICY IF EXISTS "Client portal view invoices" ON public.invoices;
+CREATE POLICY "Client portal view invoices" ON public.invoices FOR SELECT TO anon USING (client_id IS NOT NULL);
+
+DROP POLICY IF EXISTS "Client portal view quotations" ON public.quotations;
+CREATE POLICY "Client portal view quotations" ON public.quotations FOR SELECT TO anon USING (client_id IS NOT NULL);
+
+DROP POLICY IF EXISTS "Client portal view quotation items" ON public.quotation_items;
+CREATE POLICY "Client portal view quotation items" ON public.quotation_items FOR SELECT TO anon USING (EXISTS (SELECT 1 FROM public.quotations q WHERE q.id = quotation_items.quotation_id));
+
+DROP POLICY IF EXISTS "Client portal view projects" ON public.projects;
+CREATE POLICY "Client portal view projects" ON public.projects FOR SELECT TO anon USING (client_id IS NOT NULL);
+
+DROP POLICY IF EXISTS "Client portal tickets access" ON public.tickets;
+CREATE POLICY "Client portal tickets access" ON public.tickets FOR ALL TO anon USING (client_id IS NOT NULL) WITH CHECK (client_id IS NOT NULL);
+
+DROP POLICY IF EXISTS "Client portal ticket messages access" ON public.ticket_messages;
+CREATE POLICY "Client portal ticket messages access" ON public.ticket_messages FOR ALL TO anon USING (EXISTS (SELECT 1 FROM public.tickets t WHERE t.id = ticket_messages.ticket_id AND t.client_id IS NOT NULL)) WITH CHECK (EXISTS (SELECT 1 FROM public.tickets t WHERE t.id = ticket_messages.ticket_id AND t.client_id IS NOT NULL));
+
 
 -- ============================================================================
 -- 21. ENSURE ACCOUNT_ID COLUMNS EXIST ON ALL TENANT TABLES
