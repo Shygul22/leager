@@ -3,6 +3,38 @@
 -- Multi-tenant schema with strict account_id isolation and RLS policies
 -- ==============================================================================
 
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Core Helper Functions (Safe & Idempotent)
+CREATE OR REPLACE FUNCTION public.current_account_id()
+RETURNS UUID AS $$
+  SELECT account_id FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'super_admin'
+  );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.auto_set_account_id()
+RETURNS TRIGGER AS $$
+DECLARE
+  user_acc_id UUID;
+BEGIN
+  IF NEW.account_id IS NULL AND NEW.user_id IS NOT NULL THEN
+    SELECT account_id INTO user_acc_id FROM public.profiles WHERE id = NEW.user_id;
+    IF user_acc_id IS NOT NULL THEN
+      NEW.account_id := user_acc_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- 1. Sales Orders
 CREATE TABLE IF NOT EXISTS public.sales_orders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -239,3 +271,7 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- Reload Supabase Schema Cache
+NOTIFY pgrst, 'reload schema';
+
