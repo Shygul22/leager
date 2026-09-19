@@ -1,4 +1,4 @@
-import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key, History } from "lucide-react";
+import { LayoutDashboard, ArrowLeftRight, FileText, Settings, PieChart, Users, Package, Truck, CreditCard, ShieldCheck, UserCircle, Globe, MessageSquare, ShieldAlert, Bug, Briefcase, FolderOpen, Map, Award, UserPlus, Key, History, ArrowLeft } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "react-router-dom";
@@ -49,13 +49,70 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { role } = useAuth();
+  const location = useLocation();
   const normRole = (role || "").toLowerCase();
   const isSuperAdmin = normRole === "super_admin";
   
+  // Check if we are currently inside the Super Admin Portal routes
+  const isSuperAdminPortalRoute = location.pathname === "/licenses" || location.pathname === "/audit-logs";
+
+  // ─── CASE 1: SUPER ADMIN PORTAL (COMPLETELY SEPARATED VIEW) ─────────────
+  if (isSuperAdmin && isSuperAdminPortalRoute) {
+    return (
+      <Sidebar collapsible="icon">
+        <SidebarContent className="flex flex-col justify-between h-full bg-slate-950/40">
+          <SidebarGroup className="mx-2 mt-3 p-2 bg-gradient-to-br from-purple-950/70 via-purple-900/30 to-slate-900/60 border border-purple-500/30 rounded-xl shadow-md">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-black text-purple-400 flex items-center justify-between px-2 py-1">
+              {!collapsed && (
+                <>
+                  <span className="flex items-center gap-1.5 font-bold text-purple-200">
+                    <ShieldCheck className="h-4 w-4 text-purple-400" />
+                    Super Admin Portal
+                  </span>
+                  <span className="bg-purple-500/25 text-purple-300 border border-purple-500/40 text-[9px] px-2 py-0.5 rounded-full font-black tracking-wider">
+                    MASTER
+                  </span>
+                </>
+              )}
+            </SidebarGroupLabel>
+            <SidebarGroupContent className="mt-2">
+              <SidebarMenu>
+                {superAdminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        className="hover:bg-purple-500/20 text-purple-100 hover:text-white transition-colors"
+                        activeClassName="bg-purple-600 text-white font-semibold shadow-sm shadow-purple-900/50"
+                      >
+                        <item.icon className="mr-2.5 h-4 w-4 text-purple-400" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          {/* Exit Button back to Company View */}
+          <div className="p-3 border-t border-purple-500/20">
+            <NavLink
+              to="/dashboard"
+              className="flex items-center gap-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 rounded-lg px-3 py-2.5 transition-all w-full justify-center shadow-sm"
+            >
+              <ArrowLeft className="h-4 w-4 text-purple-400" />
+              {!collapsed && <span>Exit to Company View</span>}
+            </NavLink>
+          </div>
+        </SidebarContent>
+      </Sidebar>
+    );
+  }
+
+  // ─── CASE 2: COMPANY LEDGER VIEW (MANAGEMENT & OPERATIONS) ──────────────
   const filterItems = (items: any[]) => {
     if (!role) return [];
-    
-    // Super Admin sees company management items
     if (isSuperAdmin) return items;
     
     const isCustomOrStaffRole = !["super_admin", "admin", "client"].includes(normRole);
@@ -73,41 +130,24 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarContent>
-        {/* Dedicated Super Admin Portal Separated Section */}
+        {/* Quick Shortcut to Super Admin Portal when in Company view */}
         {isSuperAdmin && (
-          <SidebarGroup className="mx-2 mt-2 p-2 bg-gradient-to-br from-purple-950/50 via-purple-900/25 to-slate-900/40 border border-purple-500/30 rounded-xl shadow-sm">
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-black text-purple-400 flex items-center justify-between px-2 py-1">
+          <div className="mx-2 mt-2">
+            <NavLink
+              to="/licenses"
+              className="flex items-center justify-between p-2.5 bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-slate-900/40 hover:from-purple-900/50 hover:to-slate-800/60 border border-purple-500/30 rounded-xl text-purple-300 hover:text-white transition-all text-xs font-bold shadow-sm group"
+            >
+              <div className="flex items-center gap-2">
+                <Key className="h-4 w-4 text-purple-400 group-hover:scale-110 transition-transform" />
+                {!collapsed && <span>Super Admin Portal</span>}
+              </div>
               {!collapsed && (
-                <>
-                  <span className="flex items-center gap-1.5 font-bold text-purple-300">
-                    <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
-                    Super Admin Portal
-                  </span>
-                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] px-1.5 py-0.5 rounded font-extrabold tracking-wider">
-                    MASTER
-                  </span>
-                </>
+                <span className="text-[10px] bg-purple-500/20 px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-300 font-extrabold">
+                  Open →
+                </span>
               )}
-            </SidebarGroupLabel>
-            <SidebarGroupContent className="mt-1">
-              <SidebarMenu>
-                {superAdminItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={item.url}
-                        className="hover:bg-purple-500/20 text-purple-100 hover:text-white transition-colors"
-                        activeClassName="bg-purple-600 text-white font-semibold shadow-sm shadow-purple-900/50"
-                      >
-                        <item.icon className="mr-2 h-4 w-4 text-purple-400" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+            </NavLink>
+          </div>
         )}
 
         {filteredAdmin.length > 0 && (
@@ -165,3 +205,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
