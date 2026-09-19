@@ -14,8 +14,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+const superAdminItems = [
+  { title: "Super Admin Portal", url: "/licenses", icon: Key },
+  { title: "System Audit Trail", url: "/audit-logs", icon: History },
+];
+
 const adminItems = [
-  { title: "Super Admin Portal", url: "/licenses", icon: Key, roles: ["super_admin"] },
   { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
@@ -24,7 +28,6 @@ const adminItems = [
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
   { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
-  { title: "Audit Trail", url: "/audit-logs", icon: History, roles: ["super_admin"] },
   { title: "Settings", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
@@ -46,28 +49,20 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { role } = useAuth();
+  const normRole = (role || "").toLowerCase();
+  const isSuperAdmin = normRole === "super_admin";
   
   const filterItems = (items: any[]) => {
     if (!role) return [];
-    const normRole = role.toLowerCase();
     
-    // Super Admin sees all menu items
-    if (normRole === "super_admin") return items;
+    // Super Admin sees company management items
+    if (isSuperAdmin) return items;
     
-    // Company Admin sees all company menu items (excluding Super Admin Portal /licenses)
-    if (normRole === "admin") return items.filter(i => i.url !== "/licenses");
-
     const isCustomOrStaffRole = !["super_admin", "admin", "client"].includes(normRole);
 
     return items.filter(item => {
-      // 1. Direct role match
       if (item.roles.includes(normRole) || item.roles.includes(role)) return true;
-
-      // 2. Custom Roles (e.g. Sub-Admin, Finance Manager) see all internal management & operational items (except /licenses)
-      if (isCustomOrStaffRole && item.url !== "/licenses") {
-        return true;
-      }
-
+      if (isCustomOrStaffRole) return true;
       return false;
     });
   };
@@ -78,6 +73,43 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarContent>
+        {/* Dedicated Super Admin Portal Separated Section */}
+        {isSuperAdmin && (
+          <SidebarGroup className="mx-2 mt-2 p-2 bg-gradient-to-br from-purple-950/50 via-purple-900/25 to-slate-900/40 border border-purple-500/30 rounded-xl shadow-sm">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-black text-purple-400 flex items-center justify-between px-2 py-1">
+              {!collapsed && (
+                <>
+                  <span className="flex items-center gap-1.5 font-bold text-purple-300">
+                    <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
+                    Super Admin Portal
+                  </span>
+                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] px-1.5 py-0.5 rounded font-extrabold tracking-wider">
+                    MASTER
+                  </span>
+                </>
+              )}
+            </SidebarGroupLabel>
+            <SidebarGroupContent className="mt-1">
+              <SidebarMenu>
+                {superAdminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        className="hover:bg-purple-500/20 text-purple-100 hover:text-white transition-colors"
+                        activeClassName="bg-purple-600 text-white font-semibold shadow-sm shadow-purple-900/50"
+                      >
+                        <item.icon className="mr-2 h-4 w-4 text-purple-400" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {filteredAdmin.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/70">

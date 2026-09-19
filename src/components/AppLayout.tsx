@@ -3,12 +3,15 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { UserCircle, Eye, Building } from "lucide-react";
+import { UserCircle, Eye, Building, Key } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { useNavigate, useLocation } from "react-router-dom";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { role, profile, account, userAccounts, switchAccount, impersonatedAccount, exitImpersonation } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const formatRole = (r: string | null) => {
     if (!r) return "Guest";
@@ -77,6 +80,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               </div>
               <div className="flex items-center gap-3">
+                {role === 'super_admin' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(location.pathname === "/licenses" ? "/dashboard" : "/licenses")}
+                    className="h-7 text-xs font-semibold border-purple-500/40 bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-600 hover:text-white transition-all gap-1.5 shadow-sm"
+                  >
+                    <Key className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                    <span className="hidden sm:inline">
+                      {location.pathname === "/licenses" ? "Company Dashboard" : "Super Admin Portal"}
+                    </span>
+                  </Button>
+                )}
+
                 <div className="hidden sm:flex flex-col items-end mr-1">
                   <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 leading-tight">
                     {profile?.full_name || profile?.email?.split('@')[0] || "User"}
