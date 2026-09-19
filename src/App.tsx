@@ -32,6 +32,7 @@ import AccessDirectory from "./pages/AccessDirectory";
 import LeadTracking from "./pages/LeadTracking";
 import LicenseManagement from "./pages/LicenseManagement";
 import AuditLogs from "./pages/AuditLogs";
+import Analysis from "./pages/Analysis";
 import { LicenseLockScreen } from "@/components/LicenseLockScreen";
 
 import NotFound from "./pages/NotFound";
@@ -171,6 +172,7 @@ const App = () => (
             <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Suppliers /></ProtectedRoute>} />
             <Route path="/bills" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Bills /></ProtectedRoute>} />
             <Route path="/tax-reports" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><TaxReports /></ProtectedRoute>} />
+            <Route path="/analysis" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Analysis /></ProtectedRoute>} />
             <Route path="/shareholders" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'accounts_manager']}><Shareholders /></ProtectedRoute>} />
             <Route path="/employees" element={<ProtectedRoute allowedRoles={['super_admin', 'admin']}><Employees /></ProtectedRoute>} />
             <Route path="/tickets" element={<ProtectedRoute allowedRoles={['super_admin', 'admin', 'ticket_support']}><Tickets /></ProtectedRoute>} />

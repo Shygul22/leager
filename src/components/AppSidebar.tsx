@@ -19,20 +19,21 @@ const superAdminItems = [
   { title: "System Audit Trail", url: "/audit-logs", icon: History },
 ];
 
-const adminItems = [
+const financeAndAccountingItems = [
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
   { title: "Transactions", url: "/transactions", icon: ArrowLeftRight, roles: ["super_admin", "admin", "accounts_manager"] },
-  { title: "Tax Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
-  { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Financial Reports", url: "/tax-reports", icon: ShieldCheck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Financial Analysis", url: "/analysis", icon: PieChart, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Bills & Expenses", url: "/bills", icon: CreditCard, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Suppliers & Payouts", url: "/suppliers", icon: Truck, roles: ["super_admin", "admin", "accounts_manager"] },
+  { title: "Shareholders & Dividends", url: "/shareholders", icon: Award, roles: ["super_admin", "admin", "accounts_manager"] },
   { title: "Employees", url: "/employees", icon: UserCircle, roles: ["super_admin", "admin"] },
-  { title: "User Roles", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
+  { title: "User Roles & Permissions", url: "/roles", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { title: "Access Directory", url: "/access-directory", icon: Map, roles: ["super_admin", "admin"] },
-  { title: "Settings", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
+  { title: "Configuration", url: "/settings", icon: Settings, roles: ["super_admin", "admin"] },
 ];
 
 const operationalItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin", "accounts_manager", "staff", "project_manager"] },
   { title: "Clients", url: "/clients", icon: Users, roles: ["super_admin", "admin", "project_manager"] },
   { title: "Lead Tracking", url: "/lead-tracking", icon: UserPlus, roles: ["super_admin", "admin", "accounts_manager", "project_manager", "staff"] },
   { title: "Service Catalog", url: "/products", icon: Package, roles: ["super_admin", "admin", "staff"] },
@@ -124,7 +125,7 @@ export function AppSidebar() {
     });
   };
 
-  const filteredAdmin = filterItems(adminItems);
+  const filteredFinance = filterItems(financeAndAccountingItems);
   const filteredOps = filterItems(operationalItems);
 
   return (
@@ -150,14 +151,14 @@ export function AppSidebar() {
           </div>
         )}
 
-        {filteredAdmin.length > 0 && (
+        {filteredFinance.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/70">
-              {!collapsed && "Management"}
+              {!collapsed && "Finance & Accounting"}
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {filteredAdmin.map((item) => (
+                {filteredFinance.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild>
                       <NavLink
@@ -179,7 +180,7 @@ export function AppSidebar() {
         {filteredOps.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/70">
-              {!collapsed && "Operations"}
+              {!collapsed && "Operations & CRM"}
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
