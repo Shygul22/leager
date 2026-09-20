@@ -221,6 +221,16 @@ export default function Auth() {
             <div className="absolute bottom-[-5%] right-[-5%] w-[35%] h-[35%] bg-emerald-100 rounded-full blur-[100px]" />
             
             <div className="relative z-10 w-full max-w-lg">
+                {/* Official Brand Logo */}
+                <div className="flex flex-col items-center justify-center mb-6 text-center">
+                    <div className="bg-white p-3 rounded-2xl shadow-md border border-gray-200/90 flex flex-col items-center">
+                        <img 
+                            src="/zenjourney-banner.png" 
+                            alt="Zenjourney - Balance Your Time, Elevate Your Life" 
+                            className="h-16 w-auto object-contain" 
+                        />
+                    </div>
+                </div>
 
                 {/* Password Recovery Mode (Set New Password) */}
                 {isRecoveryMode ? (

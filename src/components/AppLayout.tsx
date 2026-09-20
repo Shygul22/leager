@@ -80,8 +80,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <AppSidebar />
           <div className="flex-1 flex flex-col">
             <header className="h-12 flex items-center justify-between border-b px-4 bg-background">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger />
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <SidebarTrigger />
+                  <div className="hidden sm:flex items-center gap-2 pl-1 pr-2 border-r">
+                    <img 
+                      src="/zenjourney-icon.png" 
+                      alt="Zenjourney" 
+                      className="h-5 w-5 rounded object-contain"
+                    />
+                    <span className="font-serif font-bold text-xs tracking-tight text-foreground">
+                      Zenjourney
+                    </span>
+                  </div>
+                </div>
                 {userAccounts && userAccounts.length > 1 && (
                   <Select value={account?.id} onValueChange={(val) => switchAccount(val)}>
                     <SelectTrigger className="w-[180px] h-8 text-xs font-semibold bg-muted/60 border-muted">

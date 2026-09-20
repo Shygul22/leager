@@ -107,7 +107,25 @@ export function AppSidebar() {
     return (
       <Sidebar collapsible="icon">
         <SidebarContent className="flex flex-col justify-between h-full bg-slate-950/40">
-          <SidebarGroup className="mx-2 mt-3 p-2 bg-gradient-to-br from-purple-950/70 via-purple-900/30 to-slate-900/60 border border-purple-500/30 rounded-xl shadow-md">
+          <div>
+            <div className="p-3 border-b border-purple-500/20 flex items-center gap-3">
+              <img 
+                src="/zenjourney-icon.png" 
+                alt="Zenjourney" 
+                className="h-8 w-8 rounded-lg object-contain bg-white shadow-sm border border-purple-400/40 shrink-0" 
+              />
+              {!collapsed && (
+                <div className="flex flex-col overflow-hidden">
+                  <span className="font-serif font-bold text-sm tracking-tight text-purple-100 leading-tight">
+                    Zenjourney
+                  </span>
+                  <span className="text-[9px] text-purple-300/80 font-medium tracking-wide truncate">
+                    Balance Your Time, Elevate Your Life
+                  </span>
+                </div>
+              )}
+            </div>
+            <SidebarGroup className="mx-2 mt-3 p-2 bg-gradient-to-br from-purple-950/70 via-purple-900/30 to-slate-900/60 border border-purple-500/30 rounded-xl shadow-md">
             <SidebarGroupLabel className="text-[10px] uppercase tracking-widest font-black text-purple-400 flex items-center justify-between px-2 py-1">
               {!collapsed && (
                 <>
@@ -141,6 +159,7 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
 
+          </div>
           {/* Exit Button back to Company View */}
           <div className="p-3 border-t border-purple-500/20">
             <NavLink
@@ -176,6 +195,25 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarContent>
+        {/* Brand Header */}
+        <div className="p-3 border-b border-border/50 flex items-center gap-3 bg-muted/20">
+          <img 
+            src="/zenjourney-icon.png" 
+            alt="Zenjourney" 
+            className="h-8 w-8 rounded-lg object-contain bg-white shadow-sm border border-border/60 shrink-0" 
+          />
+          {!collapsed && (
+            <div className="flex flex-col overflow-hidden">
+              <span className="font-serif font-bold text-sm tracking-tight text-foreground leading-tight">
+                Zenjourney
+              </span>
+              <span className="text-[9px] text-muted-foreground font-medium tracking-wide truncate">
+                Balance Your Time, Elevate Your Life
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Quick Shortcut to Super Admin Portal when in Company view */}
         {isSuperAdmin && (
           <div className="mx-2 mt-2">
