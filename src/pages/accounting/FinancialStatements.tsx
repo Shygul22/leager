@@ -48,6 +48,28 @@ export default function FinancialStatements() {
     }
   });
 
+  const { data: itAssets = [] } = useQuery({
+    queryKey: ["fs-it-assets", activeAccountId],
+    queryFn: async () => {
+      let query = supabase.from("it_assets").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
+    }
+  });
+
+  const { data: shareholders = [] } = useQuery({
+    queryKey: ["fs-shareholders", activeAccountId],
+    queryFn: async () => {
+      let query = supabase.from("shareholders").select("*");
+      if (activeAccountId) query = query.eq("account_id", activeAccountId);
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
+    }
+  });
+
   // Calculate Accrual and Cash Metrics
   const accrual = useMemo(() => {
     return calculateAccrualMetrics({
@@ -85,23 +107,36 @@ export default function FinancialStatements() {
       }, 0);
   }, [bills]);
 
+  // Dynamic Fixed Assets and Share Capital
+  const totalFixedAssets = useMemo(() => {
+    return itAssets.reduce((sum: number, a: any) => sum + Number(a.current_value || a.purchase_cost || 0), 0);
+  }, [itAssets]);
+
+  const totalShareCapital = useMemo(() => {
+    return shareholders.reduce((sum: number, s: any) => sum + Number(s.investment_amount || 0), 0);
+  }, [shareholders]);
+
   // Generate Trial Balance
   const trialBalance = useMemo(() => {
+    const totalAssetsVal = cashFlow.closingCash + totalAR + totalFixedAssets;
+    const totalLiabEquityExclRetained = totalAP + totalShareCapital;
+    const dynamicRetained = Math.max(0, totalAssetsVal - totalLiabEquityExclRetained);
+
     return generateTrialBalance({
       cashBalance: cashFlow.closingCash,
       accountsReceivable: totalAR,
-      fixedAssets: 75000, // Hardware & Setup
+      fixedAssets: totalFixedAssets,
       accumulatedDepreciation: 0,
       accountsPayable: totalAP,
       taxPayable: 0,
-      shareCapital: 75000,
+      shareCapital: totalShareCapital,
       salesRevenue: accrual.salesRevenue,
       otherIncome: accrual.otherIncome,
       cogs: accrual.cogs,
       operatingExpenses: accrual.operatingExpenses,
-      retainedEarnings: Math.max(0, (cashFlow.closingCash + totalAR) - (totalAP + 75000))
+      retainedEarnings: dynamicRetained
     });
-  }, [cashFlow, totalAR, totalAP, accrual]);
+  }, [cashFlow, totalAR, totalAP, totalFixedAssets, totalShareCapital, accrual]);
 
   return (
     <div className="space-y-6">
@@ -232,12 +267,12 @@ export default function FinancialStatements() {
                       <TableRow><TableCell className="py-2 font-bold text-xs" colSpan={2}>Non-Current / Fixed Assets</TableCell></TableRow>
                       <TableRow>
                         <TableCell className="py-1.5 pl-6 text-xs text-muted-foreground">Computer Hardware & Equipment</TableCell>
-                        <TableCell className="text-right py-1.5 font-mono text-xs font-semibold">₹75,000.00</TableCell>
+                        <TableCell className="text-right py-1.5 font-mono text-xs font-semibold">₹{totalFixedAssets.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</TableCell>
                       </TableRow>
                       <TableRow className="font-black bg-blue-50/30 border-t">
                         <TableCell className="py-3 uppercase text-xs">Total Assets</TableCell>
                         <TableCell className="text-right py-3 font-mono text-sm font-black text-blue-700">
-                          ₹{(cashFlow.closingCash + totalAR + 75000).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          ₹{(cashFlow.closingCash + totalAR + totalFixedAssets).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
                     </TableBody>
@@ -263,18 +298,18 @@ export default function FinancialStatements() {
                       <TableRow><TableCell className="py-2 font-bold text-xs" colSpan={2}>Shareholders' Equity</TableCell></TableRow>
                       <TableRow>
                         <TableCell className="py-1.5 pl-6 text-xs text-muted-foreground">Founder Share Capital</TableCell>
-                        <TableCell className="text-right py-1.5 font-mono text-xs font-semibold">₹75,000.00</TableCell>
+                        <TableCell className="text-right py-1.5 font-mono text-xs font-semibold">₹{totalShareCapital.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell className="py-1.5 pl-6 text-xs text-muted-foreground">Retained Earnings / Surplus</TableCell>
                         <TableCell className="text-right py-1.5 font-mono text-xs font-semibold">
-                          ₹{Math.max(0, (cashFlow.closingCash + totalAR) - (totalAP)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          ₹{Math.max(0, (cashFlow.closingCash + totalAR + totalFixedAssets) - (totalAP + totalShareCapital)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
                       <TableRow className="font-black bg-amber-50/30 border-t">
                         <TableCell className="py-3 uppercase text-xs">Total Liabilities & Equity</TableCell>
                         <TableCell className="text-right py-3 font-mono text-sm font-black text-amber-700">
-                          ₹{(cashFlow.closingCash + totalAR + 75000).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          ₹{(cashFlow.closingCash + totalAR + totalFixedAssets).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </TableCell>
                       </TableRow>
                     </TableBody>

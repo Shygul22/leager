@@ -167,7 +167,7 @@ export default function Dashboard() {
   }, [transactions, selectedRange]);
 
   const incomeTxs = filteredTransactions.filter((t) => t.type === "income");
-  const expenseTxs = filteredTransactions.filter((t) => t.type === "expense");
+  const expenseTxs = filteredTransactions.filter((t) => t.type === "expense" || t.type === "purchase_voucher" || t.type === "reimbursement");
 
   // Cash Logic (Savings)
   const totalCashIn = incomeTxs.reduce((sum, t) => sum + Number(t.amount || 0), 0);

@@ -38,21 +38,8 @@ export default function ChartOfAccounts() {
       }
       const { data, error } = await query;
       if (error) {
-        console.warn("Using default Indian IT GAAP Chart of Accounts", error);
-        // Fallback default Indian IT GAAP Chart of Accounts if table not yet migrated
-        return [
-          { id: "1", code: "1010", name: "Cash on Hand", type: "asset", category: "Current Assets", balance: 1500, is_active: true },
-          { id: "2", code: "1020", name: "Bank Accounts (State Bank of India)", type: "asset", category: "Current Assets", balance: 3000, is_active: true },
-          { id: "3", code: "1030", name: "Accounts Receivable (Debtors)", type: "asset", category: "Current Assets", balance: 0, is_active: true },
-          { id: "4", code: "1510", name: "Computer Hardware & Laptops", type: "asset", category: "Fixed Assets", balance: 75000, is_active: true },
-          { id: "5", code: "2010", name: "Accounts Payable (Creditors)", type: "liability", category: "Current Liabilities", balance: 2140, is_active: true },
-          { id: "6", code: "2020", name: "GST Output Tax Payable", type: "liability", category: "Current Liabilities", balance: 0, is_active: true },
-          { id: "7", code: "3010", name: "Founder Share Capital", type: "equity", category: "Equity", balance: 100000, is_active: true },
-          { id: "8", code: "3020", name: "Retained Earnings", type: "equity", category: "Equity", balance: 2360, is_active: true },
-          { id: "9", code: "4010", name: "Software Development Revenue", type: "revenue", category: "Operating Revenue", balance: 4500, is_active: true },
-          { id: "10", code: "5010", name: "Cost of Goods Sold (Direct Costs)", type: "expense", category: "Direct Expense", balance: 1200, is_active: true },
-          { id: "11", code: "6010", name: "Salaries & Staff Compensation", type: "expense", category: "Operating Expense", balance: 940, is_active: true }
-        ];
+        console.warn("Chart of accounts query error:", error);
+        return [];
       }
       return data || [];
     },

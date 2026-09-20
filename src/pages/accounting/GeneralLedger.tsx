@@ -48,48 +48,11 @@ export default function GeneralLedger() {
         query = query.eq("account_code", selectedAccount);
       }
       const { data, error } = await query;
-      if (error || !data || data.length === 0) {
-        // Fallback default ledger entries
-        return [
-          {
-            id: "gl-1",
-            account_code: "1020",
-            account_name: "Bank Accounts (SBI)",
-            debit: 4500,
-            credit: 0,
-            description: "Direct Client Wire Transfer",
-            journal_entries: { entry_number: "JRN-2026-001", entry_date: "2026-09-01", description: "Software Dev Project Milestone" }
-          },
-          {
-            id: "gl-2",
-            account_code: "4010",
-            account_name: "Software Development Revenue",
-            debit: 0,
-            credit: 4500,
-            description: "ERP Implementation & Consulting Services",
-            journal_entries: { entry_number: "JRN-2026-001", entry_date: "2026-09-01", description: "Software Dev Project Milestone" }
-          },
-          {
-            id: "gl-3",
-            account_code: "5010",
-            account_name: "Cost of Goods Sold",
-            debit: 1200,
-            credit: 0,
-            description: "Subcontractor Dev Support",
-            journal_entries: { entry_number: "JRN-2026-002", entry_date: "2026-09-03", description: "Contractor Service Settlement" }
-          },
-          {
-            id: "gl-4",
-            account_code: "1020",
-            account_name: "Bank Accounts (SBI)",
-            debit: 0,
-            credit: 1200,
-            description: "Bank Transfer to Contractor",
-            journal_entries: { entry_number: "JRN-2026-002", entry_date: "2026-09-03", description: "Contractor Service Settlement" }
-          }
-        ];
+      if (error) {
+        console.warn("General ledger query error:", error);
+        return [];
       }
-      return data;
+      return data || [];
     }
   });
 
@@ -200,10 +163,10 @@ export default function GeneralLedger() {
                 filteredLines.map((line: any) => (
                   <TableRow key={line.id} className="hover:bg-slate-50/70">
                     <TableCell className="text-xs font-medium text-slate-700">
-                      {line.journal_entries?.entry_date || "2026-09-01"}
+                      {line.journal_entries?.entry_date || "—"}
                     </TableCell>
                     <TableCell className="font-mono text-xs font-bold text-slate-900">
-                      {line.journal_entries?.entry_number || "JRN-001"}
+                      {line.journal_entries?.entry_number || "—"}
                     </TableCell>
                     <TableCell>
                       <span className="font-semibold text-xs text-slate-900">{line.account_code} - {line.account_name}</span>

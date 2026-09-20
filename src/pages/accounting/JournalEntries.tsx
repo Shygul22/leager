@@ -73,33 +73,8 @@ export default function JournalEntries() {
       }
       const { data, error } = await query;
       if (error) {
-        // Fallback sample double-entry posted records
-        return [
-          {
-            id: "1",
-            entry_number: "JRN-2026-001",
-            entry_date: "2026-09-01",
-            reference_type: "invoice",
-            description: "Software Dev Client Billing - INV-001",
-            status: "posted",
-            journal_entry_lines: [
-              { id: "l1", account_code: "1030", account_name: "Accounts Receivable", debit: 4500, credit: 0 },
-              { id: "l2", account_code: "4010", account_name: "Software Revenue", debit: 0, credit: 4500 }
-            ]
-          },
-          {
-            id: "2",
-            entry_number: "JRN-2026-002",
-            entry_date: "2026-09-05",
-            reference_type: "payment",
-            description: "Payment Received via SBI Bank Transfer",
-            status: "posted",
-            journal_entry_lines: [
-              { id: "l3", account_code: "1020", account_name: "Bank Accounts (SBI)", debit: 4500, credit: 0 },
-              { id: "l4", account_code: "1030", account_name: "Accounts Receivable", debit: 0, credit: 4500 }
-            ]
-          }
-        ];
+        console.warn("Journal entries query error:", error);
+        return [];
       }
       return data || [];
     }

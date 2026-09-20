@@ -130,7 +130,7 @@ export default function Analysis() {
     }, [transactions, selectedRange]);
 
     const incomeTxs = filteredTransactions.filter((t) => t.type === "income");
-    const expenseTxs = filteredTransactions.filter((t) => t.type === "expense");
+    const expenseTxs = filteredTransactions.filter((t) => t.type === "expense" || t.type === "purchase_voucher" || t.type === "reimbursement");
 
     // Accrual Logic (Net Profit)
     const filteredBills = useMemo(() => {
