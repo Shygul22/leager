@@ -7,6 +7,9 @@ import { numberToWords } from "@/utils/numberToWords";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 
 export interface PurchaseVoucherItem {
   description: string;
@@ -26,7 +29,7 @@ export interface PurchaseVoucherData {
   vendorInvoiceNo?: string;
   vendorInvoiceDate?: string;
   poRefNo?: string;
-  costCenter?: "Zenjourney InfoTech" | "Movara Media Production" | "Zero Growth" | "Corporate / General";
+  costCenter?: string;
   vendorName?: string;
   vendorCode?: string;
   vendorAddress?: string;
@@ -48,6 +51,10 @@ export interface PurchaseVoucherData {
   verifiedBy?: string;
   approvedBy?: string;
   receivedBy?: string;
+  companyName?: string;
+  cin?: string;
+  registeredOffice?: string;
+  verticals?: string;
 }
 
 interface PurchaseVoucherModalProps {
@@ -61,6 +68,7 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
   onOpenChange,
   data: initialData
 }) => {
+  const { user, account } = useAuth();
   const printRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<PurchaseVoucherData>(initialData);
   const [selectedVertical, setSelectedVertical] = useState<string>(
@@ -74,6 +82,24 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
   );
   const [isExporting, setIsExporting] = useState(false);
 
+  // Dynamically fetch company profile settings
+  const { data: profile } = useQuery({
+    queryKey: ["voucher_profile", user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      return p;
+    },
+    enabled: !!user,
+  });
+
+  const companyName = data.companyName || account?.company_name || profile?.company_name || "ZENJOURNEY PRIVATE LIMITED";
+  const cinNumber = data.cin || profile?.cin_number || profile?.cin || "U62013TN2026PTC191867";
+  const registeredOffice = data.registeredOffice || profile?.address || "Registered Office: Kallakurichi District, Tamil Nadu, India";
+  const authPersonName = data.approvedBy || profile?.auth_person_name || "Authorized Signatory";
+  const authDesignation = profile?.auth_designation || "Director / Authorized Signatory";
+  const bankAccountPaid = data.bankAccountPaidFrom || (profile?.bank_name ? `${profile.bank_name} A/c ${profile.account_number || ""}`.trim() : "State Bank of India (SBI)");
+
   // Sync state if initialData changes
   React.useEffect(() => {
     setData(initialData);
@@ -84,23 +110,34 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
 
   // Compute Financial Year if not supplied
   const currentYear = new Date().getFullYear();
-  const nextYearShort = (currentYear + 1).toString().slice(-2);
   const defaultFY = `${currentYear}-${currentYear + 1}`;
   const fy = data.financialYear || defaultFY;
 
-  // Compute Items and Totals
+  // Dynamic cost centers list
+  const defaultCostCenters = [
+    "Zenjourney InfoTech",
+    "Movara Media Production",
+    "Zero Growth",
+    "Corporate / General"
+  ];
+  const availableCostCenters = Array.from(new Set([
+    ...defaultCostCenters,
+    ...(data.costCenter ? [data.costCenter] : [])
+  ]));
+
+  // Compute Items and Totals (without static fake ₹45,000 mock items)
   const normalizedItems = (data.items && data.items.length > 0)
     ? data.items
     : [
         {
-          description: "Technical Consulting & Cloud Architecture Services",
-          hsn: "998313",
+          description: data.narration || data.vendorName || "Goods / Services",
+          hsn: "9983",
           quantity: 1,
-          rate: 45000,
-          taxableValue: 45000,
+          rate: 0,
+          taxableValue: 0,
           gstPercent: 18,
-          gstAmount: 8100,
-          total: 53100
+          gstAmount: 0,
+          total: 0
         }
       ];
 
@@ -208,16 +245,20 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
           <div className="bg-[#0c3656] text-white p-4 sm:p-5 rounded-t-md flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#009688]">
             <div className="space-y-1">
               <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase font-serif text-white">
-                ZENJOURNEY PRIVATE LIMITED
+                {companyName}
               </h1>
-              <p className="text-[11px] font-mono tracking-tight text-slate-200">
-                CIN: U62013TN2026PTC191867
-              </p>
+              {cinNumber && cinNumber !== "NIL" && (
+                <p className="text-[11px] font-mono tracking-tight text-slate-200">
+                  CIN: {cinNumber}
+                </p>
+              )}
               <p className="text-[10px] text-slate-300">
-                Registered Office: Kallakurichi District, Tamil Nadu, India
+                {registeredOffice}
               </p>
               <p className="text-[9px] font-semibold text-cyan-300 tracking-wider">
-                Zenjourney InfoTech &nbsp;|&nbsp; Movara Media Production &nbsp;|&nbsp; Zero Growth
+                {data.verticals || (companyName.toLowerCase().includes("zenjourney") 
+                  ? "Zenjourney InfoTech \u00a0|\u00a0 Movara Media Production \u00a0|\u00a0 Zero Growth" 
+                  : "Finance & Accounts Department")}
               </p>
             </div>
             <div className="mt-3 sm:mt-0 text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-700">
@@ -268,12 +309,7 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
               Cost Centre / Business Vertical
             </div>
             <div className="p-2 flex flex-wrap gap-4 sm:gap-6">
-              {[
-                "Zenjourney InfoTech",
-                "Movara Media Production",
-                "Zero Growth",
-                "Corporate / General"
-              ].map((v) => (
+              {availableCostCenters.map((v) => (
                 <label key={v} className="flex items-center gap-1.5 cursor-pointer text-[11px] font-medium text-slate-800">
                   <input
                     type="checkbox"
@@ -479,7 +515,7 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
             <div className="grid grid-cols-3 divide-x divide-slate-400">
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Bank / Account Paid From: </span>
-                <span>{data.bankAccountPaidFrom || "SBI A/c 45505327860"}</span>
+                <span>{bankAccountPaid}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Txn. Ref. / Cheque No.: </span>
@@ -540,7 +576,7 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
             <div className="p-3 pt-8 flex flex-col justify-end">
               <div className="border-t border-slate-400 pt-1.5">
                 <div className="text-slate-900 uppercase font-black">APPROVED BY (DIRECTOR)</div>
-                <div className="font-normal text-slate-600 text-[9px]">Shygul Akbar / Executive Director</div>
+                <div className="font-normal text-slate-600 text-[9px]">{authPersonName} / {authDesignation}</div>
               </div>
             </div>
             <div className="p-3 pt-8 flex flex-col justify-end">
@@ -554,7 +590,7 @@ export const PurchaseVoucherModal: React.FC<PurchaseVoucherModalProps> = ({
           {/* Footer Note */}
           <div className="flex justify-between items-center text-[9px] text-slate-500 pt-2 font-medium">
             <span>Original: Accounts &nbsp;|&nbsp; Duplicate: Vendor. Attach original tax invoice.</span>
-            <span className="font-semibold text-slate-700">Zenjourney Private Limited</span>
+            <span className="font-semibold text-slate-700">{companyName}</span>
           </div>
         </div>
       </DialogContent>

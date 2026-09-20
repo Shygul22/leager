@@ -89,6 +89,7 @@ export default function Bills() {
                 total: Number(bill.paid_amount || 1000)
             }];
 
+        const sup = bill.suppliers;
         setSelectedPurchaseVoucher({
             voucherNo: `ZJ/PV/${yearShort}-${nextYearShort}/${hashSeq}`,
             voucherDate: format(new Date(bill.date || bill.created_at || Date.now()), "dd/MM/yyyy"),
@@ -96,10 +97,18 @@ export default function Bills() {
             vendorInvoiceNo: bill.bill_number || `BILL-${hashSeq}`,
             vendorInvoiceDate: format(new Date(bill.date || bill.created_at || Date.now()), "dd/MM/yyyy"),
             costCenter: "Zenjourney InfoTech",
-            vendorName: bill.suppliers?.name || "Vendor",
-            vendorGstin: bill.suppliers?.gstin || "NIL",
+            vendorName: sup?.name || bill.supplier_name || "Vendor",
+            vendorCode: sup?.id ? sup.id.slice(0, 8).toUpperCase() : "—",
+            vendorAddress: sup?.address || "—",
+            vendorGstin: sup?.gstin || "NIL",
+            vendorPan: (sup?.gstin && sup.gstin.length >= 12) ? sup.gstin.slice(2, 12) : "—",
+            vendorPhoneEmail: [sup?.phone, sup?.email].filter(Boolean).join(" / ") || "—",
             natureOfPurchase: (bill.category as any) || "Services",
             paymentMode: "NEFT / RTGS / IMPS",
+            companyName: account?.company_name || profile?.company_name,
+            cin: profile?.cin_number || profile?.cin,
+            registeredOffice: profile?.address,
+            approvedBy: profile?.auth_person_name,
             items,
             narration: bill.notes || `Purchase Bill ${bill.bill_number}`
         });

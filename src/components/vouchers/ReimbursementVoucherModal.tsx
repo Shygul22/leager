@@ -7,6 +7,9 @@ import { numberToWords } from "@/utils/numberToWords";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 
 export interface ExpenseStatementItem {
   date?: string;
@@ -27,7 +30,7 @@ export interface ReimbursementVoucherData {
   department?: string;
   reportingManager?: string;
   contactNo?: string;
-  vertical?: "Zenjourney InfoTech" | "Movara Media Production" | "Zero Growth" | "Corporate / General";
+  vertical?: string;
   claimPeriodFrom?: string;
   claimPeriodTo?: string;
   projectOrClient?: string;
@@ -44,6 +47,10 @@ export interface ReimbursementVoucherData {
   managerName?: string;
   accountsName?: string;
   approvedByName?: string;
+  companyName?: string;
+  cin?: string;
+  registeredOffice?: string;
+  verticals?: string;
 }
 
 interface ReimbursementVoucherModalProps {
@@ -57,6 +64,7 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
   onOpenChange,
   data: initialData
 }) => {
+  const { user, account } = useAuth();
   const printRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<ReimbursementVoucherData>(initialData);
   const [selectedVertical, setSelectedVertical] = useState<string>(
@@ -66,6 +74,26 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
     initialData.paymentMode || "Bank Transfer"
   );
   const [isExporting, setIsExporting] = useState(false);
+
+  // Dynamically fetch company profile settings
+  const { data: profile } = useQuery({
+    queryKey: ["reimb_voucher_profile", user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      return p;
+    },
+    enabled: !!user,
+  });
+
+  const companyName = data.companyName || account?.company_name || profile?.company_name || "ZENJOURNEY PRIVATE LIMITED";
+  const cinNumber = data.cin || profile?.cin_number || profile?.cin || "U62013TN2026PTC191867";
+  const registeredOffice = data.registeredOffice || profile?.address || "Registered Office: Kallakurichi District, Tamil Nadu, India";
+  const authPersonName = data.approvedByName || profile?.auth_person_name || "Authorized Director";
+  const authDesignation = profile?.auth_designation || "Director / Authorized Signatory";
+  const bankAccNo = data.accountNo || profile?.account_number || "—";
+  const bankIfsc = data.ifsc || profile?.ifsc_code || "—";
+  const bankAccountName = data.accountNameOrUpi || (profile?.full_name ? `${profile.full_name} / ${profile.upi_id || ""}`.trim() : "—");
 
   React.useEffect(() => {
     setData(initialData);
@@ -77,16 +105,27 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
   const defaultFY = `${currentYear}-${currentYear + 1}`;
   const fy = data.financialYear || defaultFY;
 
+  const defaultCostCenters = [
+    "Zenjourney InfoTech",
+    "Movara Media Production",
+    "Zero Growth",
+    "Corporate / General"
+  ];
+  const availableVerticals = Array.from(new Set([
+    ...defaultCostCenters,
+    ...(data.vertical ? [data.vertical] : [])
+  ]));
+
   const normalizedItems = (data.items && data.items.length > 0)
     ? data.items
     : [
         {
           date: format(new Date(), "yyyy-MM-dd"),
-          categoryCode: "CM",
-          description: "Client hospitality & project briefing meeting",
-          billReceiptNo: "REC-1049",
-          amountClaimed: 2450,
-          approvedAmount: 2450
+          categoryCode: "OT",
+          description: data.purpose || "Expense claim",
+          billReceiptNo: "REC-01",
+          amountClaimed: 0,
+          approvedAmount: 0
         }
       ];
 
@@ -180,16 +219,20 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
           <div className="bg-[#0c3656] text-white p-4 sm:p-5 rounded-t-md flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-[#009688]">
             <div className="space-y-1">
               <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase font-serif text-white">
-                ZENJOURNEY PRIVATE LIMITED
+                {companyName}
               </h1>
-              <p className="text-[11px] font-mono tracking-tight text-slate-200">
-                CIN: U62013TN2026PTC191867
-              </p>
+              {cinNumber && cinNumber !== "NIL" && (
+                <p className="text-[11px] font-mono tracking-tight text-slate-200">
+                  CIN: {cinNumber}
+                </p>
+              )}
               <p className="text-[10px] text-slate-300">
-                Registered Office: Kallakurichi District, Tamil Nadu, India
+                {registeredOffice}
               </p>
               <p className="text-[9px] font-semibold text-cyan-300 tracking-wider">
-                Zenjourney InfoTech &nbsp;|&nbsp; Movara Media Production &nbsp;|&nbsp; Zero Growth
+                {data.verticals || (companyName.toLowerCase().includes("zenjourney") 
+                  ? "Zenjourney InfoTech \u00a0|\u00a0 Movara Media Production \u00a0|\u00a0 Zero Growth" 
+                  : "Finance & Accounts Department")}
               </p>
             </div>
             <div className="mt-3 sm:mt-0 text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-700">
@@ -228,39 +271,34 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
             <div className="grid grid-cols-3 divide-x divide-slate-400 border-b border-slate-400">
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Name of Claimant: </span>
-                <span className="font-bold text-slate-900">{data.claimantName || "Shygul Akbar"}</span>
+                <span className="font-bold text-slate-900">{data.claimantName || "Claimant"}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Employee / Team ID: </span>
-                <span className="font-mono">{data.employeeId || "ZJ-DIR-01"}</span>
+                <span className="font-mono">{data.employeeId || "—"}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Designation: </span>
-                <span>{data.designation || "Founder & Executive Director"}</span>
+                <span>{data.designation || "Staff Member"}</span>
               </div>
             </div>
             <div className="grid grid-cols-3 divide-x divide-slate-400 border-b border-slate-400">
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Department / Vertical: </span>
-                <span>{data.department || "Executive Management"}</span>
+                <span>{data.department || selectedVertical}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Reporting Manager: </span>
-                <span>{data.reportingManager || "Board of Directors"}</span>
+                <span>{data.reportingManager || "Management"}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Contact No.: </span>
-                <span>{data.contactNo || "+91 99442 82522"}</span>
+                <span>{data.contactNo || "—"}</span>
               </div>
             </div>
             <div className="p-2 flex flex-wrap items-center gap-4 sm:gap-6">
               <span className="font-bold text-slate-700">Vertical:</span>
-              {[
-                "Zenjourney InfoTech",
-                "Movara Media Production",
-                "Zero Growth",
-                "Corporate / General"
-              ].map((v) => (
+              {availableVerticals.map((v) => (
                 <label key={v} className="flex items-center gap-1.5 cursor-pointer text-[11px] font-medium text-slate-800">
                   <input
                     type="checkbox"
@@ -417,15 +455,15 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
             <div className="grid grid-cols-4 divide-x divide-slate-400">
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Account Name / UPI ID: </span>
-                <span>{data.accountNameOrUpi || "Shygul Akbar / shygul@upi"}</span>
+                <span>{bankAccountName}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">A/c No.: </span>
-                <span className="font-mono">{data.accountNo || "45505327860"}</span>
+                <span className="font-mono">{bankAccNo}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">IFSC: </span>
-                <span className="font-mono">{data.ifsc || "SBIN0011071"}</span>
+                <span className="font-mono">{bankIfsc}</span>
               </div>
               <div className="p-1.5">
                 <span className="font-bold text-slate-700">Payment Date: </span>
@@ -437,7 +475,7 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
           {/* Declaration */}
           <div className="border-x border-b border-slate-400 text-[10px] p-2 bg-slate-50 text-slate-700 leading-normal">
             <span className="font-bold text-slate-900 uppercase">DECLARATION: </span>
-            I certify that the above expenses were incurred wholly and necessarily for the business of Zenjourney Private Limited, are supported by the attached original bills / receipts, and have not been claimed or reimbursed earlier from any other source.
+            I certify that the above expenses were incurred wholly and necessarily for the business of {companyName}, are supported by the attached original bills / receipts, and have not been claimed or reimbursed earlier from any other source.
           </div>
 
           {/* Signature Boxes */}
@@ -463,7 +501,7 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
             <div className="p-3 pt-8 flex flex-col justify-end">
               <div className="border-t border-slate-400 pt-1.5">
                 <div className="text-slate-900 uppercase font-black">APPROVED BY (DIRECTOR)</div>
-                <div className="font-normal text-slate-600 text-[9px]">Shygul Akbar / Executive Director</div>
+                <div className="font-normal text-slate-600 text-[9px]">{authPersonName} / {authDesignation}</div>
               </div>
             </div>
           </div>
@@ -471,7 +509,7 @@ export const ReimbursementVoucherModal: React.FC<ReimbursementVoucherModalProps>
           {/* Footer Note */}
           <div className="flex justify-between items-center text-[9px] text-slate-500 pt-2 font-medium">
             <span>Attach original bills / receipts. Submit claims within 30 days of the expense.</span>
-            <span className="font-semibold text-slate-700">Zenjourney Private Limited</span>
+            <span className="font-semibold text-slate-700">{companyName}</span>
           </div>
         </div>
       </DialogContent>

@@ -207,18 +207,33 @@ export default function Transactions() {
     const nextYearShort = (parseInt(yearShort) + 1).toString();
     const hashSeq = Math.abs(t.id.split("-").reduce((a, b) => a + (parseInt(b, 16) || 123), 0)) % 900 + 100;
 
+    // Resolve company branding
+    const companyName = account?.company_name || profile?.company_name || "ZENJOURNEY PRIVATE LIMITED";
+    const cin = profile?.cin_number || profile?.cin;
+    const registeredOffice = profile?.address;
+    const approvedBy = profile?.auth_person_name;
+
     if (t.type === "reimbursement" || t.employee_id) {
       const emp = employees.find((e: any) => e.id === t.employee_id);
       setSelectedReimbVoucher({
-        voucherNo: `ZJ/EV/${yearShort}-${nextYearShort}/${hashSeq}`,
+        voucherNo: t.reference_number || `ZJ/EV/${yearShort}-${nextYearShort}/${hashSeq}`,
         voucherDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
         financialYear: `20${yearShort}-20${nextYearShort}`,
-        claimantName: emp?.name || t.employees?.name || "Employee Claimant",
-        employeeId: t.employee_id ? `ZJ-EMP-${t.employee_id.slice(0, 4).toUpperCase()}` : "ZJ-EMP-01",
-        designation: emp?.designation || "Executive Staff",
+        claimantName: emp?.name || t.employees?.name || profile?.full_name || "Employee Claimant",
+        employeeId: emp?.id ? emp.id.slice(0, 8).toUpperCase() : "—",
+        designation: emp?.designation || "Staff Member",
         department: emp?.department || "Operations",
+        reportingManager: (emp as any)?.reporting_manager || "Management",
+        contactNo: (emp as any)?.phone || (emp as any)?.email || "—",
         vertical: "Zenjourney InfoTech",
         purpose: t.description,
+        accountNameOrUpi: (emp as any)?.bank_account_name || (emp as any)?.upi_id || "—",
+        accountNo: (emp as any)?.account_number || "—",
+        ifsc: (emp as any)?.ifsc_code || "—",
+        companyName,
+        cin,
+        registeredOffice,
+        approvedByName: approvedBy,
         items: [
           {
             date: format(new Date(t.date || t.created_at || Date.now()), "yyyy-MM-dd"),
@@ -236,18 +251,59 @@ export default function Transactions() {
       const rateVal = Math.round(amountVal / 1.18);
       const gstVal = Math.round(amountVal - rateVal);
 
+      // Dynamically resolve supplier / vendor
+      const sup = suppliers.find((s: any) => s.id === (t as any).supplier_id);
+      const cl = clients.find((c: any) => c.id === t.client_id);
+
+      let vendorName = "Vendor / Supplier";
+      let vendorCode = "—";
+      let vendorAddress = "—";
+      let vendorGstin = "NIL";
+      let vendorPan = "—";
+      let vendorPhoneEmail = "—";
+
+      if (sup) {
+        vendorName = sup.name;
+        vendorCode = sup.id ? sup.id.slice(0, 8).toUpperCase() : "—";
+        vendorAddress = sup.address || "—";
+        vendorGstin = sup.gstin || "NIL";
+        vendorPan = (sup.gstin && sup.gstin.length >= 12) ? sup.gstin.slice(2, 12) : (sup.pan || "—");
+        vendorPhoneEmail = [sup.phone, sup.email].filter(Boolean).join(" / ") || "—";
+      } else if (cl) {
+        vendorName = cl.name;
+        vendorCode = cl.client_number || (cl.id ? cl.id.slice(0, 8).toUpperCase() : "—");
+        vendorAddress = cl.address || "—";
+        vendorGstin = cl.gstin || "NIL";
+        vendorPhoneEmail = [cl.phone, cl.email].filter(Boolean).join(" / ") || "—";
+      } else if (t.description && t.description.includes(":")) {
+        vendorName = t.description.split(":")[0].trim();
+      }
+
+      const cleanItemDesc = (t.description && t.description.includes(":"))
+        ? t.description.split(":").slice(1).join(":").trim()
+        : t.description;
+
       setSelectedPurchaseVoucher({
-        voucherNo: `ZJ/PV/${yearShort}-${nextYearShort}/${hashSeq}`,
+        voucherNo: t.reference_number || `ZJ/PV/${yearShort}-${nextYearShort}/${hashSeq}`,
         voucherDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
         financialYear: `20${yearShort}-20${nextYearShort}`,
-        vendorInvoiceNo: `INV-${hashSeq}`,
+        vendorInvoiceNo: t.reference_number || `INV-${hashSeq}`,
         vendorInvoiceDate: format(new Date(t.date || t.created_at || Date.now()), "dd/MM/yyyy"),
         costCenter: "Zenjourney InfoTech",
-        vendorName: t.clients?.name || (t.description.includes(":") ? t.description.split(":")[0] : "Vendor / Supplier"),
-        natureOfPurchase: "Services",
+        vendorName,
+        vendorCode,
+        vendorAddress,
+        vendorGstin,
+        vendorPan,
+        vendorPhoneEmail,
+        natureOfPurchase: (t.category as any) || "Services",
+        companyName,
+        cin,
+        registeredOffice,
+        approvedBy,
         items: [
           {
-            description: t.description,
+            description: cleanItemDesc || t.description,
             hsn: "9983",
             quantity: 1,
             rate: rateVal,
