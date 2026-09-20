@@ -99,10 +99,60 @@ export default function Roles() {
     const handleAddUser = async () => {
         setIsAdding(true);
         try {
+            const trimmedEmail = newEmail.trim().toLowerCase();
+            if (!trimmedEmail) {
+                toast.error("Please enter a valid email address.");
+                return;
+            }
+
             const userCompany = currentUserProfile?.company_name || account?.company_name || "ZenJourney InfoTech";
             const activeAccId = account?.id || currentUserProfile?.account_id || null;
 
-            // Use isolated client so auth session of current Admin is NOT overwritten or logged out
+            // 1. Check if a profile with this email already exists
+            const { data: existingProfile } = await supabase
+                .from("profiles")
+                .select("id, email, role, account_id")
+                .ilike("email", trimmedEmail)
+                .maybeSingle();
+
+            if (existingProfile) {
+                // User is already registered in the system; add membership to this account
+                if (activeAccId) {
+                    await supabase.from("user_account_memberships").upsert([{
+                        user_id: existingProfile.id,
+                        account_id: activeAccId,
+                        role: newRole,
+                        status: "active"
+                    }], { onConflict: "user_id,account_id" });
+
+                    // Set active account if none was assigned
+                    if (!existingProfile.account_id) {
+                        await supabase
+                            .from("profiles")
+                            .update({ account_id: activeAccId, role: newRole })
+                            .eq("id", existingProfile.id);
+                    }
+                }
+
+                await supabase.from("audit_logs").insert([{
+                    account_id: activeAccId,
+                    actor_id: user?.id,
+                    actor_email: user?.email,
+                    action: "Add User to Organization",
+                    module: "User Roles",
+                    target: trimmedEmail,
+                    details: { role: newRole, notice: "Existing user added to membership" }
+                }]);
+
+                toast.success(`User "${trimmedEmail}" is already registered and has been added to your organization!`);
+                setAddOpen(false);
+                setNewEmail("");
+                setNewPassword("");
+                refetch();
+                return;
+            }
+
+            // 2. Isolated client for creating new auth user without overriding current session
             const tempClient = createClient(
                 import.meta.env.VITE_SUPABASE_URL,
                 import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -110,35 +160,41 @@ export default function Roles() {
             );
 
             const { data, error } = await tempClient.auth.signUp({
-                email: newEmail,
+                email: trimmedEmail,
                 password: newPassword,
                 options: {
                     data: {
                         role: newRole,
                         company_name: userCompany,
                         account_id: activeAccId,
-                        full_name: newEmail.split("@")[0]
+                        full_name: trimmedEmail.split("@")[0]
                     }
                 }
             });
 
-            if (error) throw error;
+            if (error) {
+                if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already exists")) {
+                    toast.error(`The user "${trimmedEmail}" is already registered. You can assign them roles or memberships directly.`);
+                    return;
+                }
+                throw error;
+            }
 
             if (data?.user) {
                 // Upsert profile record via main authenticated admin client
-                const { error: profErr } = await supabase
-                    .from("profiles")
-                    .upsert({
-                        id: data.user.id,
-                        role: newRole,
-                        email: newEmail,
-                        company_name: userCompany,
-                        account_id: activeAccId,
-                        full_name: newEmail.split("@")[0]
-                    }, { onConflict: "id" });
-
-                if (profErr) {
-                    console.warn("Profile upsert notice:", profErr.message);
+                try {
+                    await supabase
+                        .from("profiles")
+                        .upsert({
+                            id: data.user.id,
+                            role: newRole,
+                            email: trimmedEmail,
+                            company_name: userCompany,
+                            account_id: activeAccId,
+                            full_name: trimmedEmail.split("@")[0]
+                        }, { onConflict: "id" });
+                } catch (pe: any) {
+                    console.warn("Profile upsert notice:", pe?.message);
                 }
 
                 if (activeAccId) {
@@ -156,19 +212,23 @@ export default function Roles() {
                     actor_email: user?.email,
                     action: "Create User Account",
                     module: "User Roles",
-                    target: newEmail,
+                    target: trimmedEmail,
                     details: { role: newRole }
                 }]);
                 
-                toast.success(`User account "${newEmail}" created! They can now log in.`);
+                toast.success(`User account "${trimmedEmail}" created! They can now log in.`);
                 setAddOpen(false);
                 setNewEmail("");
                 setNewPassword("");
                 refetch();
             }
-        } catch (err) {
-            const error = err as Error;
-            toast.error(error.message || "Failed to create user");
+        } catch (err: any) {
+            const errorMsg = err?.message || "";
+            if (errorMsg.includes("profiles_email_key") || errorMsg.toLowerCase().includes("duplicate key")) {
+                toast.error(`A user with email "${newEmail}" already exists in the system.`);
+            } else {
+                toast.error(errorMsg || "Failed to create user");
+            }
         } finally {
             setIsAdding(false);
         }

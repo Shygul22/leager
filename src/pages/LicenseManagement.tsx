@@ -109,41 +109,71 @@ export default function LicenseManagement() {
             // 2. Create Primary Admin User in Supabase Auth if password provided
             if (form.admin_email && form.admin_password) {
                 try {
-                    const tempClient = createClient(
-                        import.meta.env.VITE_SUPABASE_URL,
-                        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-                        { auth: { persistSession: false } }
-                    );
+                    const trimmedAdminEmail = form.admin_email.trim().toLowerCase();
 
-                    const { data: authData, error: authErr } = await tempClient.auth.signUp({
-                        email: form.admin_email,
-                        password: form.admin_password,
-                        options: {
-                            data: {
-                                role: "admin",
-                                company_name: form.company_name,
-                                account_id: newAccount.id,
-                                full_name: form.admin_name || form.admin_email.split("@")[0]
-                            }
-                        }
-                    });
+                    // Check if a profile with this email already exists
+                    const { data: existingAdminProfile } = await supabase
+                        .from("profiles")
+                        .select("id, account_id")
+                        .ilike("email", trimmedAdminEmail)
+                        .maybeSingle();
 
-                    if (authData?.user) {
-                        await supabase.from("profiles").upsert({
-                            id: authData.user.id,
-                            role: "admin",
-                            email: form.admin_email,
-                            company_name: form.company_name,
-                            account_id: newAccount.id,
-                            full_name: form.admin_name || form.admin_email.split("@")[0]
-                        }, { onConflict: "id" });
-
+                    if (existingAdminProfile) {
+                        // User already registered: link to this new tenant account
                         await supabase.from("user_account_memberships").upsert([{
-                            user_id: authData.user.id,
+                            user_id: existingAdminProfile.id,
                             account_id: newAccount.id,
                             role: "admin",
                             status: "active"
                         }], { onConflict: "user_id,account_id" });
+
+                        if (!existingAdminProfile.account_id) {
+                            await supabase
+                                .from("profiles")
+                                .update({ account_id: newAccount.id })
+                                .eq("id", existingAdminProfile.id);
+                        }
+                    } else {
+                        const tempClient = createClient(
+                            import.meta.env.VITE_SUPABASE_URL,
+                            import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                            { auth: { persistSession: false } }
+                        );
+
+                        const { data: authData } = await tempClient.auth.signUp({
+                            email: trimmedAdminEmail,
+                            password: form.admin_password,
+                            options: {
+                                data: {
+                                    role: "admin",
+                                    company_name: form.company_name,
+                                    account_id: newAccount.id,
+                                    full_name: form.admin_name || trimmedAdminEmail.split("@")[0]
+                                }
+                            }
+                        });
+
+                        if (authData?.user) {
+                            try {
+                                await supabase.from("profiles").upsert({
+                                    id: authData.user.id,
+                                    role: "admin",
+                                    email: trimmedAdminEmail,
+                                    company_name: form.company_name,
+                                    account_id: newAccount.id,
+                                    full_name: form.admin_name || trimmedAdminEmail.split("@")[0]
+                                }, { onConflict: "id" });
+                            } catch (pe: any) {
+                                console.warn("Profile notice:", pe?.message);
+                            }
+
+                            await supabase.from("user_account_memberships").upsert([{
+                                user_id: authData.user.id,
+                                account_id: newAccount.id,
+                                role: "admin",
+                                status: "active"
+                            }], { onConflict: "user_id,account_id" });
+                        }
                     }
                 } catch (signUpErr) {
                     console.warn("Primary admin account auto-signup notice:", signUpErr);
